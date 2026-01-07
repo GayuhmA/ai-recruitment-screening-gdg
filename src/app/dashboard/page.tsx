@@ -12,17 +12,13 @@ import {
   Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
+import { Header } from '@/components/layout/header';
 
 export default function DashboardPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex items-center justify-between h-16 px-6 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm">
-        <div>
-          <h1 className="text-xl font-semibold text-white">Dashboard</h1>
-          <p className="text-sm text-zinc-400">Welcome back Username! Here's what's happening today.</p>
-        </div>
-      </header>
+      <Header title="Dashboard" description="Welcome back Username! Here's what's happening today." />
       
       <div className="flex-1 p-6 space-y-6 overflow-auto">
         {/* Metrics Grid */}
