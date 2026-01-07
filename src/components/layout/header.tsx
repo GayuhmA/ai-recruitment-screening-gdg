@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import Link from 'next/link';
 
 interface HeaderProps {
   title: string;
@@ -37,7 +38,7 @@ export function Header({ title, description }: HeaderProps) {
               className="relative h-9 w-9 rounded-full ring-2 ring-zinc-800 hover:ring-violet-500/50 transition-all"
             >
               <Avatar className="h-9 w-9">
-                <AvatarImage src="/avatar.png" alt="Maya" />
+                <AvatarImage src="/avatar.png" alt="User" />
                 <AvatarFallback className="bg-linear-to-br from-violet-500 to-indigo-600 text-white text-sm font-medium">
                   UN
                 </AvatarFallback>
@@ -56,9 +57,11 @@ export function Header({ title, description }: HeaderProps) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-zinc-800" />
-            <DropdownMenuItem className="text-red-400 focus:bg-zinc-800 focus:text-red-400 cursor-pointer">
-              Log out
-            </DropdownMenuItem>
+            <Link href="/login">
+              <DropdownMenuItem className="text-red-400 focus:bg-zinc-800 focus:text-red-400 cursor-pointer">
+                Log out
+              </DropdownMenuItem>
+            </Link>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
