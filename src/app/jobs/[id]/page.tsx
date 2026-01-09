@@ -21,9 +21,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, ArrowUpDown, Eye } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Search,
+  ArrowUpDown,
+  Eye,
+  Upload,
+  FileText,
+  CheckCircle2,
+} from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 
 export default function JobDetailPage({
@@ -33,6 +49,33 @@ export default function JobDetailPage({
 }) {
   const { id } = use(params);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files).map((f) => f.name);
+      setUploadedFiles((prev) => [...prev, ...files]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files).map((f) => f.name);
+    setUploadedFiles((prev) => [...prev, ...files]);
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -57,30 +100,146 @@ export default function JobDetailPage({
                       Open
                     </Badge>
                   </div>
+                  {/* Upload Candidates Button & Dialog */}
+                  <Dialog
+                    open={isUploadDialogOpen}
+                    onOpenChange={setIsUploadDialogOpen}
+                  >
+                    <DialogTrigger asChild>
+                      <Button className="bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white gap-2">
+                        <Upload className="w-4 h-4" />
+                        Upload Candidates
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle className="text-xl flex items-center gap-2">
+                          Upload Candidate Resumes
+                        </DialogTitle>
+                        <DialogDescription className="text-zinc-400">
+                          Upload PDF resumes and our AI will automatically
+                          analyze and score candidates.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <div
+                          onDragOver={handleDragOver}
+                          onDragLeave={handleDragLeave}
+                          onDrop={handleDrop}
+                          className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                            isDragging
+                              ? "border-violet-500 bg-violet-500/10"
+                              : "border-zinc-700 hover:border-zinc-600 bg-zinc-800/50"
+                          }`}
+                        >
+                          <div className="flex flex-col items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-zinc-700 flex items-center justify-center">
+                              <FileText className="w-6 h-6 text-zinc-400" />
+                            </div>
+                            <div>
+                              <p className="text-white font-medium mb-1">
+                                Drag and drop PDF files here
+                              </p>
+                              <p className="text-sm text-zinc-500">
+                                or click to browse from your computer
+                              </p>
+                            </div>
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              onChange={handleFileSelect}
+                              accept=".pdf"
+                              multiple
+                              className="hidden"
+                            />
+                            <Button
+                              variant="outline"
+                              className="mt-2 border-zinc-700 text-zinc-300"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              Browse Files
+                            </Button>
+                          </div>
+                        </div>
+                        {uploadedFiles.length > 0 && (
+                          <div className="mt-4 space-y-2">
+                            <p className="text-sm text-zinc-400 mb-2">
+                              Uploaded files:
+                            </p>
+                            {uploadedFiles.map((file, index) => (
+                              <div
+                                key={index}
+                                className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800"
+                              >
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                <span className="text-sm text-zinc-300">
+                                  {file}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setIsUploadDialogOpen(false);
+                            setUploadedFiles([]);
+                          }}
+                          className="text-zinc-400 hover:text-white"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          className="bg-linear-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500"
+                          onClick={() => {
+                            setIsUploadDialogOpen(false);
+                            setUploadedFiles([]);
+                          }}
+                        >
+                          Process with AI
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </CardHeader>
               <CardContent>
                 <p className="text-zinc-400 mb-4">
-                  We are looking for an experienced Frontend Developer to join our
-                  team. You will be responsible for building user interfaces using
-                  React and TypeScript. The ideal candidate should have strong
-                  problem-solving skills and experience with modern web
+                  We are looking for an experienced Frontend Developer to join
+                  our team. You will be responsible for building user interfaces
+                  using React and TypeScript. The ideal candidate should have
+                  strong problem-solving skills and experience with modern web
                   technologies.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <span className="text-sm text-zinc-500 mr-2">
                     Required Skills:
                   </span>
-                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                  <Badge
+                    variant="secondary"
+                    className="bg-zinc-800 text-zinc-300"
+                  >
                     React
                   </Badge>
-                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                  <Badge
+                    variant="secondary"
+                    className="bg-zinc-800 text-zinc-300"
+                  >
                     TypeScript
                   </Badge>
-                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                  <Badge
+                    variant="secondary"
+                    className="bg-zinc-800 text-zinc-300"
+                  >
                     Tailwind CSS
                   </Badge>
-                  <Badge variant="secondary" className="bg-zinc-800 text-zinc-300">
+                  <Badge
+                    variant="secondary"
+                    className="bg-zinc-800 text-zinc-300"
+                  >
                     Next.js
                   </Badge>
                 </div>
@@ -197,7 +356,9 @@ export default function JobDetailPage({
                             New
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-zinc-400">Jan 5, 2026</TableCell>
+                        <TableCell className="text-zinc-400">
+                          Jan 5, 2026
+                        </TableCell>
                         <TableCell className="text-right">
                           <Link href="/candidates/1">
                             <Button
@@ -220,7 +381,9 @@ export default function JobDetailPage({
                               CD
                             </div>
                             <div>
-                              <p className="font-medium text-white">Citra Dewi</p>
+                              <p className="font-medium text-white">
+                                Citra Dewi
+                              </p>
                               <p className="text-sm text-zinc-500">
                                 citra.dewi@email.com
                               </p>
@@ -248,7 +411,9 @@ export default function JobDetailPage({
                             New
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-zinc-400">Jan 4, 2026</TableCell>
+                        <TableCell className="text-zinc-400">
+                          Jan 4, 2026
+                        </TableCell>
                         <TableCell className="text-right">
                           <Link href="/candidates/2">
                             <Button
@@ -271,7 +436,9 @@ export default function JobDetailPage({
                               ER
                             </div>
                             <div>
-                              <p className="font-medium text-white">Eko Raharjo</p>
+                              <p className="font-medium text-white">
+                                Eko Raharjo
+                              </p>
                               <p className="text-sm text-zinc-500">
                                 eko.raharjo@email.com
                               </p>
@@ -299,7 +466,9 @@ export default function JobDetailPage({
                             Accepted
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-zinc-400">Jan 3, 2026</TableCell>
+                        <TableCell className="text-zinc-400">
+                          Jan 3, 2026
+                        </TableCell>
                         <TableCell className="text-right">
                           <Link href="/candidates/3">
                             <Button
