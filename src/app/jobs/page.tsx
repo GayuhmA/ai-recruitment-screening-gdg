@@ -214,7 +214,7 @@ export default function JobsPage() {
             {/* Jobs Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Job Card */}
-              <Link href="/jobs">
+              <Link href="/jobs/1">
                 <Card className="bg-zinc-900 border-zinc-800 hover:border-violet-500/50 transition-all duration-200 cursor-pointer group h-full">
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between mb-4">
