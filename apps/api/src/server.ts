@@ -120,8 +120,8 @@ app.post("/auth/register", {
       return reply.code(400).send({
         statusCode: 400,
         error: "Validation Error",
-        message: error.errors[0].message,
-        details: error.errors,
+        message: error.issues[0].message,
+        details: error.issues,
       });
     }
     
@@ -233,7 +233,21 @@ app.get("/jobs", async (req) => {
     where,
     take: query.limit + 1,
     orderBy: { createdAt: "desc" },
-    select: { id: true, title: true, description: true, requirements: true, createdAt: true, updatedAt: true },
+    select: { 
+      id: true, 
+      title: true, 
+      description: true,
+      department: true,
+      status: true,
+      requirements: true, 
+      createdAt: true, 
+      updatedAt: true,
+      _count: {
+        select: {
+          applications: true
+        }
+      }
+    },
   };
 
   if (query.cursor) {
@@ -243,8 +257,36 @@ app.get("/jobs", async (req) => {
 
   const rows = await prisma.job.findMany(queryOptions);
 
-  const hasMore = rows.length > query.limit;
-  const data = hasMore ? rows.slice(0, query.limit) : rows;
+  // Get hired count for each job
+  const jobIds = rows.map(job => job.id);
+  const hiredCounts = await prisma.application.groupBy({
+    by: ['jobId'],
+    where: {
+      jobId: { in: jobIds },
+      status: 'HIRED'
+    },
+    _count: {
+      id: true
+    }
+  });
+
+  const hiredCountMap = new Map(hiredCounts.map(h => [h.jobId, h._count.id]));
+
+  // Add hired count and extract required skills to each job
+  const jobsWithStats = rows.map(job => {
+    const requirements = job.requirements as any;
+    return {
+      ...job,
+      requiredSkills: requirements?.requiredSkills || [],
+      _count: {
+        ...job._count,
+        hired: hiredCountMap.get(job.id) || 0
+      }
+    };
+  });
+
+  const hasMore = jobsWithStats.length > query.limit;
+  const data = hasMore ? jobsWithStats.slice(0, query.limit) : jobsWithStats;
   const nextCursor = hasMore ? data[data.length - 1].id : null;
 
   return { data, nextCursor };
@@ -254,10 +296,41 @@ app.get("/jobs/:jobId", async (req, reply) => {
   const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
   const job = await prisma.job.findUnique({
     where: { id: params.jobId },
-    select: { id: true, title: true, description: true, requirements: true, createdAt: true, updatedAt: true },
+    select: { 
+      id: true, 
+      title: true, 
+      description: true,
+      department: true,
+      status: true,
+      requirements: true, 
+      createdAt: true, 
+      updatedAt: true,
+      _count: {
+        select: {
+          applications: true
+        }
+      }
+    },
   });
   if (!job) return reply.code(404).send({ message: "Job not found" });
-  return job;
+
+  // Get hired count
+  const hiredCount = await prisma.application.count({
+    where: {
+      jobId: params.jobId,
+      status: 'HIRED'
+    }
+  });
+
+  const requirements = job.requirements as any;
+  return {
+    ...job,
+    requiredSkills: requirements?.requiredSkills || [],
+    _count: {
+      ...job._count,
+      hired: hiredCount
+    }
+  };
 });
 
 app.post("/jobs", {
@@ -369,7 +442,17 @@ app.get("/candidates", async (req) => {
     where,
     take: query.limit + 1,
     orderBy: { createdAt: "desc" },
-    select: { id: true, fullName: true, email: true, phone: true, createdAt: true },
+    include: {
+      applications: {
+        include: {
+          job: {
+            select: { id: true, title: true, department: true }
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        take: 1, // Get most recent application
+      }
+    }
   };
 
   if (query.cursor) {
@@ -379,8 +462,44 @@ app.get("/candidates", async (req) => {
 
   const rows = await prisma.candidateProfile.findMany(queryOptions);
 
-  const hasMore = rows.length > query.limit;
-  const data = hasMore ? rows.slice(0, query.limit) : rows;
+  // Get match scores for candidates
+  const candidateIds = rows.map(c => c.id);
+  const matches = await prisma.jobCandidateMatch.findMany({
+    where: { candidateProfileId: { in: candidateIds } },
+    select: {
+      candidateProfileId: true,
+      score: true,
+      matchedSkills: true,
+    },
+    orderBy: { updatedAt: 'desc' }
+  });
+
+  const matchMap = new Map(matches.map(m => [m.candidateProfileId, m]));
+
+  // Transform data with match scores and skills
+  const transformedRows = rows.map(candidate => {
+    const match = matchMap.get(candidate.id);
+    const matchedSkills = match?.matchedSkills as string[] || [];
+    
+    return {
+      id: candidate.id,
+      name: candidate.fullName,
+      email: candidate.email,
+      phone: candidate.phone,
+      createdAt: candidate.createdAt,
+      skills: matchedSkills,
+      applications: candidate.applications.map(app => ({
+        id: app.id,
+        status: app.status,
+        createdAt: app.createdAt,
+        matchScore: match?.score || 0,
+        job: app.job
+      }))
+    };
+  });
+
+  const hasMore = transformedRows.length > query.limit;
+  const data = hasMore ? transformedRows.slice(0, query.limit) : transformedRows;
   const nextCursor = hasMore ? data[data.length - 1].id : null;
 
   return { data, nextCursor };
@@ -388,12 +507,66 @@ app.get("/candidates", async (req) => {
 
 app.get("/candidates/:candidateId", async (req, reply) => {
   const params = z.object({ candidateId: z.string().uuid() }).parse(req.params);
+  
   const candidate = await prisma.candidateProfile.findUnique({
     where: { id: params.candidateId },
-    select: { id: true, fullName: true, email: true, phone: true, createdAt: true },
+    select: { 
+      id: true, 
+      fullName: true, 
+      email: true, 
+      phone: true, 
+      createdAt: true,
+    },
   });
+  
   if (!candidate) return reply.code(404).send({ message: "Candidate not found" });
-  return candidate;
+  
+  // Get all applications for this candidate
+  const applications = await prisma.application.findMany({
+    where: { candidateProfileId: params.candidateId },
+    include: {
+      job: {
+        select: { id: true, title: true, department: true, status: true }
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  
+  // Get match scores for each application
+  const matches = await prisma.jobCandidateMatch.findMany({
+    where: { candidateProfileId: params.candidateId },
+    select: {
+      jobId: true,
+      score: true,
+      matchedSkills: true,
+      missingSkills: true,
+    },
+  });
+  
+  const matchMap = new Map(matches.map(m => [m.jobId, m]));
+  
+  const applicationsWithScores = applications.map(app => {
+    const match = matchMap.get(app.jobId);
+    return {
+      id: app.id,
+      jobId: app.jobId,
+      status: app.status,
+      createdAt: app.createdAt,
+      job: app.job,
+      matchScore: match?.score ?? 0,
+      matchedSkills: match?.matchedSkills ?? [],
+      missingSkills: match?.missingSkills ?? [],
+    };
+  });
+  
+  return {
+    id: candidate.id,
+    name: candidate.fullName,
+    email: candidate.email,
+    phone: candidate.phone,
+    createdAt: candidate.createdAt,
+    applications: applicationsWithScores,
+  };
 });
 
 app.post("/candidates", {
@@ -549,7 +722,7 @@ app.patch("/applications/:applicationId", {
   handler: async (req, reply) => {
     const params = z.object({ applicationId: z.string().uuid() }).parse(req.params);
   const body = z.object({
-    status: z.enum(["APPLIED", "SHORTLISTED", "REJECTED"]).optional(),
+    status: z.enum(["APPLIED", "IN_REVIEW", "SHORTLISTED", "INTERVIEW", "OFFERED", "HIRED", "REJECTED"]).optional(),
   }).parse(req.body);
 
   const exists = await prisma.application.findUnique({ where: { id: params.applicationId } });
@@ -805,31 +978,94 @@ app.get("/jobs/:jobId/matches", async (req) => {
   }));
 });
 
-app.get("/jobs/:jobId/candidates", async (req) => {
-  const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
-  const query = z
-    .object({ sort: z.enum(["score_desc", "score_asc"]).optional() })
-    .parse((req as any).query ?? {});
+app.get("/jobs/:jobId/candidates", async (req, reply) => {
+  try {
+    const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
+    const query = z
+      .object({ sort: z.enum(["score_desc", "score_asc"]).optional() })
+      .parse((req as any).query ?? {});
 
-  const orderBy = query.sort === "score_asc" ? { score: "asc" as const } : { score: "desc" as const };
-  const rows = await prisma.jobCandidateMatch.findMany({
-    where: { jobId: params.jobId },
-    orderBy,
-    select: {
-      score: true,
-      matchedSkills: true,
-      candidate: { select: { id: true, fullName: true, email: true, phone: true } },
-    },
-  });
+    // Get all applications for this job (including those still processing)
+    const applications = await prisma.application.findMany({
+      where: { jobId: params.jobId },
+      include: {
+        candidate: {
+          select: { id: true, fullName: true, email: true, phone: true }
+        },
+        cvDocuments: {
+          select: { id: true, status: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    });
 
-  return rows.map((r) => ({
-    candidate: r.candidate,
-    score: r.score,
-    skills: Array.isArray(r.matchedSkills) ? (r.matchedSkills as unknown[]).filter((x): x is string => typeof x === "string") : [],
-  }));
+    // Get match scores
+    const matches = await prisma.jobCandidateMatch.findMany({
+      where: { jobId: params.jobId },
+      select: {
+        candidateProfileId: true,
+        score: true,
+        matchedSkills: true,
+        missingSkills: true,
+        aiExplanation: true,
+      },
+    });
+
+    const matchMap = new Map(matches.map(m => [m.candidateProfileId, m]));
+
+    const result = applications.map((app) => {
+      const match = matchMap.get(app.candidateProfileId);
+      const cvDoc = app.cvDocuments[0];
+      const cvStatus = cvDoc?.status;
+      
+      return {
+        candidate: {
+          id: app.candidate.id,
+          name: app.candidate.fullName,
+          email: app.candidate.email,
+          phone: app.candidate.phone,
+        },
+        application: {
+          id: app.id,
+          status: app.status,
+          createdAt: app.createdAt,
+        },
+        matchScore: match?.score ?? 0,
+        matchedSkills: match?.matchedSkills ?? [],
+        missingSkills: match?.missingSkills ?? [],
+        aiExplanation: match?.aiExplanation ?? null,
+        cvStatus: cvStatus,
+      };
+    });
+
+    // Sort by score if requested
+    if (query.sort) {
+      result.sort((a, b) => {
+        return query.sort === "score_asc" 
+          ? a.matchScore - b.matchScore 
+          : b.matchScore - a.matchScore;
+      });
+    }
+
+    return { data: result };
+  } catch (error) {
+    console.error("Error in /jobs/:jobId/candidates:", error);
+    reply.status(500).send({ error: "Internal server error", details: error.message });
+  }
 });
 
 const port = Number(process.env.APP_PORT || 3001);
+
+// Global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
 
 app.listen({ port, host: "0.0.0.0" }).catch((err) => {
   if (err.code === "EADDRINUSE") {

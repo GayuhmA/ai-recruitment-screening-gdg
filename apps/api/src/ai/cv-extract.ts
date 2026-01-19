@@ -46,14 +46,16 @@ ${safeText}
 """
 `.trim();
 
-  // Simple retry (3 attempts) for transient errors
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Simple retry (2 attempts) for transient errors - faster fail for better UX
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const model = gemini.getGenerativeModel({
         model: GEMINI_MODEL,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: schema,
+          temperature: 0.1, // More deterministic
+          maxOutputTokens: 1000, // Limit response size for speed
         },
       });
 
@@ -63,11 +65,11 @@ ${safeText}
 
       return JSON.parse(text) as CvAiResult;
     } catch (e) {
-      if (attempt === 2) {
-        throw new Error(`Gemini extraction failed after 3 attempts: ${e instanceof Error ? e.message : String(e)}`);
+      if (attempt === 1) {
+        throw new Error(`Gemini extraction failed after 2 attempts: ${e instanceof Error ? e.message : String(e)}`);
       }
-      // Exponential backoff
-      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      // Short backoff for faster retry
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
     }
   }
 

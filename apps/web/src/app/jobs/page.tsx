@@ -416,11 +416,21 @@ export default function JobsPage() {
                               </div>
                             )}
                             <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
-                              <div className="flex items-center gap-1.5 text-zinc-500">
-                                <Users className="w-4 h-4" />
-                                <span className="text-sm">
-                                  {job._count?.applications || 0} applicants
-                                </span>
+                              <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-1.5 text-zinc-500">
+                                  <Users className="w-4 h-4" />
+                                  <span className="text-sm">
+                                    {job._count?.applications || 0} applicants
+                                  </span>
+                                </div>
+                                {job._count?.hired !== undefined && job._count.hired > 0 && (
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                    <span className="text-sm text-emerald-400 font-medium">
+                                      {job._count.hired} hired
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                               <div className="flex items-center gap-1.5 text-zinc-500">
                                 <Calendar className="w-4 h-4" />
