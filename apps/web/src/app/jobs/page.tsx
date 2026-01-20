@@ -30,8 +30,12 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { useJobs, useCreateJob, useUpdateJob } from "@/hooks/useJobs";
 import { JobStatus } from "@/types/api";
 import { format } from "date-fns";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 export default function JobsPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<JobStatus | "all">("all");
@@ -48,6 +52,15 @@ export default function JobsPage() {
   // Fetch jobs
   const { data: jobsData, isLoading, error } = useJobs();
   const createJobMutation = useCreateJob();
+
+  // Auto-open create dialog if ?create=true query param is present
+  useEffect(() => {
+    if (searchParams.get('create') === 'true') {
+      setIsCreateDialogOpen(true);
+      // Clean up URL without reloading
+      router.replace('/jobs', { scroll: false });
+    }
+  }, [searchParams, router]);
 
   // Filter and search jobs with optimized search
   const filteredJobs = useMemo(() => {
@@ -79,7 +92,7 @@ export default function JobsPage() {
   const uniqueDepartments = useMemo(() => {
     if (!jobsData?.data) return [];
     const departments = jobsData.data
-      .map(job => job.department)
+      .map((job) => job.department)
       .filter((dept, index, self) => dept && self.indexOf(dept) === index)
       .sort();
     return departments;
@@ -234,7 +247,9 @@ export default function JobsPage() {
                     </DialogTrigger>
                     <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
                       <DialogHeader>
-                        <DialogTitle className="text-xl">Create New Job</DialogTitle>
+                        <DialogTitle className="text-xl">
+                          Create New Job
+                        </DialogTitle>
                         <DialogDescription className="text-zinc-400">
                           Add a new job position to start receiving candidates.
                         </DialogDescription>
@@ -246,7 +261,10 @@ export default function JobsPage() {
                             placeholder="e.g., Senior Frontend Engineer"
                             value={formData.title}
                             onChange={(e) =>
-                              setFormData({ ...formData, title: e.target.value })
+                              setFormData({
+                                ...formData,
+                                title: e.target.value,
+                              })
                             }
                             className="bg-zinc-800 border-zinc-700 text-white"
                           />
@@ -296,7 +314,10 @@ export default function JobsPage() {
                             placeholder="Describe the role and responsibilities..."
                             value={formData.description}
                             onChange={(e) =>
-                              setFormData({ ...formData, description: e.target.value })
+                              setFormData({
+                                ...formData,
+                                description: e.target.value,
+                              })
                             }
                             className="bg-zinc-800 border-zinc-700 text-white min-h-[100px]"
                           />
@@ -309,7 +330,10 @@ export default function JobsPage() {
                             placeholder="e.g., React, TypeScript, Node.js"
                             value={formData.requiredSkills}
                             onChange={(e) =>
-                              setFormData({ ...formData, requiredSkills: e.target.value })
+                              setFormData({
+                                ...formData,
+                                requiredSkills: e.target.value,
+                              })
                             }
                             className="bg-zinc-800 border-zinc-700 text-white"
                           />
@@ -347,8 +371,15 @@ export default function JobsPage() {
                 {/* Results count */}
                 {jobsData?.data && (
                   <div className="text-sm text-zinc-400">
-                    Showing <span className="text-white font-semibold">{filteredJobs.length}</span> of{" "}
-                    <span className="text-white font-semibold">{jobsData.data.length}</span> jobs
+                    Showing{' '}
+                    <span className="text-white font-semibold">
+                      {filteredJobs.length}
+                    </span>{' '}
+                    of{' '}
+                    <span className="text-white font-semibold">
+                      {jobsData.data.length}
+                    </span>{' '}
+                    jobs
                   </div>
                 )}
 
@@ -357,19 +388,23 @@ export default function JobsPage() {
                   {filteredJobs.length === 0 ? (
                     <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
                       <p className="text-zinc-400 mb-4">
-                        {searchQuery || statusFilter !== "all" || departmentFilter !== "all"
-                          ? "No jobs match your filters"
-                          : "No jobs yet. Create your first job to get started!"}
+                        {searchQuery ||
+                        statusFilter !== 'all' ||
+                        departmentFilter !== 'all'
+                          ? 'No jobs match your filters'
+                          : 'No jobs yet. Create your first job to get started!'}
                       </p>
-                      {!searchQuery && statusFilter === "all" && departmentFilter === "all" && (
-                        <Button
-                          onClick={() => setIsCreateDialogOpen(true)}
-                          className="bg-violet-600 hover:bg-violet-500"
-                        >
-                          <Plus className="w-4 h-4 mr-2" />
-                          Create First Job
-                        </Button>
-                      )}
+                      {!searchQuery &&
+                        statusFilter === 'all' &&
+                        departmentFilter === 'all' && (
+                          <Button
+                            onClick={() => setIsCreateDialogOpen(true)}
+                            className="bg-violet-600 hover:bg-violet-500"
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Create First Job
+                          </Button>
+                        )}
                     </div>
                   ) : (
                     filteredJobs.map((job) => (
@@ -398,23 +433,26 @@ export default function JobsPage() {
                             <p className="text-sm text-zinc-400 line-clamp-2 mb-4">
                               {job.description}
                             </p>
-                            {job.requiredSkills && job.requiredSkills.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 mb-4">
-                                {job.requiredSkills.slice(0, 4).map((skill, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-400"
-                                  >
-                                    {skill}
-                                  </span>
-                                ))}
-                                {job.requiredSkills.length > 4 && (
-                                  <span className="text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-400">
-                                    +{job.requiredSkills.length - 4} more
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                            {job.requiredSkills &&
+                              job.requiredSkills.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mb-4">
+                                  {job.requiredSkills
+                                    .slice(0, 4)
+                                    .map((skill, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-400"
+                                      >
+                                        {skill}
+                                      </span>
+                                    ))}
+                                  {job.requiredSkills.length > 4 && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-400">
+                                      +{job.requiredSkills.length - 4} more
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
                               <div className="flex items-center gap-4">
                                 <div className="flex items-center gap-1.5 text-zinc-500">
@@ -424,13 +462,13 @@ export default function JobsPage() {
                                   </span>
                                 </div>
                                 {job._count?.hired !== undefined && job._count.hired > 0 && (
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                                    <span className="text-sm text-emerald-400 font-medium">
-                                      {job._count.hired} hired
-                                    </span>
-                                  </div>
-                                )}
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                                      <span className="text-sm text-emerald-400 font-medium">
+                                        {job._count.hired} hired
+                                      </span>
+                                    </div>
+                                  )}
                               </div>
                               <div className="flex items-center gap-1.5 text-zinc-500">
                                 <Calendar className="w-4 h-4" />
