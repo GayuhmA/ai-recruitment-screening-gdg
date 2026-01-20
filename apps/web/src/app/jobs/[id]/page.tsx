@@ -44,6 +44,8 @@ import {
   Sparkles,
   Target,
   XCircle,
+  Users,
+  Calendar,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useRef, useMemo, useEffect } from "react";
@@ -230,7 +232,7 @@ export default function JobDetailPage({
       const matchesSearch =
         searchQuery === '' ||
         candidate.candidate.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        candidate.candidate.email.toLowerCase().includes(searchQuery.toLowerCase());
+        candidate.candidate.email?.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesStatus =
         statusFilter === 'all' || candidate.application.status === statusFilter;
@@ -735,7 +737,7 @@ export default function JobDetailPage({
                                     <div>
                                       <p className="font-medium text-white">{candidate.name}</p>
                                       <p className="text-sm text-zinc-500">
-                                        {candidate.email}
+                                        {candidate.email || 'No email provided'}
                                       </p>
                                     </div>
                                   </div>
