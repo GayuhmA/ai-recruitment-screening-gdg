@@ -110,6 +110,8 @@ export interface Application {
   candidateId: string;
   status: ApplicationStatus;
   matchScore: number;
+  matchedSkills?: string[];
+  missingSkills?: string[];
   createdAt: string;
   updatedAt: string;
   job?: Job;

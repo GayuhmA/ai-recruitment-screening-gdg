@@ -275,11 +275,12 @@ app.get("/jobs", async (req) => {
   // Add hired count and extract required skills to each job
   const jobsWithStats = rows.map(job => {
     const requirements = job.requirements as any;
+    const jobWithCount = job as any;
     return {
       ...job,
       requiredSkills: requirements?.requiredSkills || [],
       _count: {
-        ...job._count,
+        ...jobWithCount._count,
         hired: hiredCountMap.get(job.id) || 0
       }
     };
@@ -480,6 +481,7 @@ app.get("/candidates", async (req) => {
   const transformedRows = rows.map(candidate => {
     const match = matchMap.get(candidate.id);
     const matchedSkills = match?.matchedSkills as string[] || [];
+    const candidateWithApps = candidate as any;
     
     return {
       id: candidate.id,
@@ -488,7 +490,7 @@ app.get("/candidates", async (req) => {
       phone: candidate.phone,
       createdAt: candidate.createdAt,
       skills: matchedSkills,
-      applications: candidate.applications.map(app => ({
+      applications: candidateWithApps.applications.map(app => ({
         id: app.id,
         status: app.status,
         createdAt: app.createdAt,
