@@ -37,6 +37,7 @@ enum CvFailReason {
 enum AiOutputType {
   SUMMARY
   SKILLS
+  CV_PROFILE
 }
 
 model Organization {
@@ -65,6 +66,10 @@ model Job {
   id             String   @id @default(uuid())
   organizationId String
   title          String
+  department     String?  // Department/team for the job
+  location       String?  // Job location
+  employmentType String?  // FULL_TIME, PART_TIME, CONTRACT, etc.
+  status         String   @default("OPEN") // OPEN, CLOSED, DRAFT
   description    String
   requirements   Json?    // optional structured requirements later
   createdAt      DateTime @default(now())
@@ -75,6 +80,7 @@ model Job {
   matches      JobCandidateMatch[]
 
   @@index([organizationId])
+  @@index([status])
 }
 
 model CandidateProfile {
@@ -150,6 +156,7 @@ model JobCandidateMatch {
   matchedSkills   Json?    // string[]
   missingSkills   Json?    // string[]
   explanation     String?
+  aiExplanation   String?  // AI-generated matching explanation
   updatedAt       DateTime @updatedAt
 
   job       Job @relation(fields: [jobId], references: [id])

@@ -2,7 +2,8 @@ import "dotenv/config";
 import { Worker } from "bullmq";
 import { prisma } from "./lib/db.js";
 import { connection } from "./lib/bullmq.js";
-import { extractCvInsights } from "./ai/cv-extract.js";
+import { parseCvWithAI, parseCvFallback, type CvProfile } from "./ai/cv-parser.js";
+import { generateContextualSummary, performSmartMatching } from "./ai/smart-matcher.js";
 import { getObjectBuffer } from "./lib/s3.js";
 import { extractTextFromPdf } from "./lib/pdf.js";
 
@@ -45,6 +46,9 @@ function norm(s: string): string {
   return s.trim().toLowerCase();
 }
 
+/**
+ * Extract required skills from job requirements JSON
+ */
 function getJobSkillsFromRequirements(requirements: unknown): string[] {
   if (!requirements || typeof requirements !== "object") return [];
 
@@ -58,42 +62,29 @@ function getJobSkillsFromRequirements(requirements: unknown): string[] {
     .filter((x) => x.length > 0);
 }
 
-// Anti divide-by-zero, consistent normalization
-function computeMatchScore(cvSkills: string[], jobSkills: string[]) {
-  const job = new Set(jobSkills.map(norm).filter(Boolean));
-  if (job.size === 0) return { score: 0, matched: [] as string[], missing: [] as string[] };
+/**
+ * Get job details for context-aware processing
+ */
+async function getJobDetails(jobId: string) {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      title: true,
+      department: true,
+      description: true,
+      requirements: true,
+    },
+  });
 
-  const cv = new Set(cvSkills.map(norm).filter(Boolean));
-  const matched = [...job].filter((s) => cv.has(s));
-  const missing = [...job].filter((s) => !cv.has(s));
-  const score = Math.round((matched.length / job.size) * 100);
-
-  return { score, matched, missing };
-}
-
-function fallbackAi(extractedText: string) {
-  // very naive skill extraction (keyword based)
-  const skillKeywords = [
-    "javascript", "typescript", "node", "postgres", "mysql",
-    "docker", "kotlin", "flutter", "python", "php", "laravel"
-  ];
-
-  const text = extractedText.toLowerCase();
-  const skills = skillKeywords.filter(s => text.includes(s));
-
-  const summary =
-    extractedText
-      .replace(/\s+/g, " ")
-      .slice(0, 300)
-      .trim() || "Fallback summary (AI unavailable)";
+  if (!job) {
+    throw new Error(`Job ${jobId} not found`);
+  }
 
   return {
-    skills,
-    summary,
-    meta: {
-      provider: "fallback",
-      reason: "AI_UNAVAILABLE",
-    },
+    title: job.title,
+    department: job.department || "General",
+    description: job.description,
+    requiredSkills: getJobSkillsFromRequirements(job.requirements),
   };
 }
 
@@ -148,28 +139,33 @@ new Worker(
         data: { extractedText, status: "TEXT_EXTRACTED" },
       });
 
-      // 3. Call Gemini for structured extraction
-      const { skills, summary } = await extractCvInsights(extractedText);
+      // 3. PHASE 1: Parse CV with AI (comprehensive extraction)
+      let cvProfile: CvProfile;
+      let usedFallback = false;
 
+      try {
+        cvProfile = await parseCvWithAI(extractedText);
+        console.log(`✅ AI parsing successful for CV ${cvDocumentId}`);
+      } catch (aiError) {
+        console.warn(`⚠️ AI parsing failed, using fallback:`, aiError);
+        cvProfile = parseCvFallback(extractedText);
+        usedFallback = true;
+      }
+
+      // Store comprehensive CV profile
       await prisma.aiOutput.create({
         data: {
           cvDocumentId,
-          type: "SKILLS",
-          outputJson: { skills },
-          modelMeta: { provider: "gemini", model: process.env.GEMINI_MODEL || "gemini-2.0-flash-exp" },
+          type: "CV_PROFILE",
+          outputJson: cvProfile as any,
+          modelMeta: {
+            provider: usedFallback ? "fallback" : "gemini",
+            model: usedFallback ? "keyword-extraction" : process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+          },
         },
       });
 
-      await prisma.aiOutput.create({
-        data: {
-          cvDocumentId,
-          type: "SUMMARY",
-          outputJson: { summary },
-          modelMeta: { provider: "gemini", model: process.env.GEMINI_MODEL || "gemini-2.0-flash-exp" },
-        },
-      });
-
-      // 4. Deterministic matching score
+      // 4. Get job details for context-aware processing
       const cv = await prisma.cvDocument.findUnique({
         where: { id: cvDocumentId },
         select: {
@@ -177,40 +173,126 @@ new Worker(
             select: {
               jobId: true,
               candidateProfileId: true,
-              job: { select: { requirements: true } },
             },
           },
         },
       });
 
       const app = cv?.application;
-      if (app) {
-        const jobSkills = getJobSkillsFromRequirements(app.job.requirements);
-        const { score, matched, missing } = computeMatchScore(skills, jobSkills);
-
-        await prisma.jobCandidateMatch.upsert({
-          where: {
-            jobId_candidateProfileId: {
-              jobId: app.jobId,
-              candidateProfileId: app.candidateProfileId,
-            },
-          },
-          create: {
-            jobId: app.jobId,
-            candidateProfileId: app.candidateProfileId,
-            score,
-            matchedSkills: matched,
-            missingSkills: missing,
-          },
-          update: {
-            score,
-            matchedSkills: matched,
-            missingSkills: missing,
-          },
-        });
+      if (!app) {
+        throw new Error("Application not found for this CV");
       }
 
-      // 5. Mark as done
+      const jobDetails = await getJobDetails(app.jobId);
+
+      // 5. PHASE 2: Generate context-aware summary
+      let contextualSummary: string;
+      let keyHighlights: string[];
+      let relevanceScore: number;
+
+      if (!usedFallback) {
+        try {
+          const summaryResult = await generateContextualSummary(cvProfile, jobDetails);
+          contextualSummary = summaryResult.contextualSummary;
+          keyHighlights = summaryResult.keyHighlights;
+          relevanceScore = summaryResult.relevanceScore;
+          console.log(`✅ Context-aware summary generated for CV ${cvDocumentId}`);
+        } catch (summaryError) {
+          console.warn(`⚠️ Summary generation failed, using generic:`, summaryError);
+          contextualSummary = cvProfile.professionalSummary;
+          keyHighlights = cvProfile.skills.technical.slice(0, 5);
+          relevanceScore = 50;
+        }
+      } else {
+        // Use fallback summary
+        contextualSummary = cvProfile.professionalSummary;
+        keyHighlights = cvProfile.skills.technical.slice(0, 5);
+        relevanceScore = 30; // Lower score for fallback
+      }
+
+      await prisma.aiOutput.create({
+        data: {
+          cvDocumentId,
+          type: "SUMMARY",
+          outputJson: {
+            contextualSummary,
+            keyHighlights,
+            relevanceScore,
+          } as any,
+          modelMeta: {
+            provider: usedFallback ? "fallback" : "gemini",
+            model: usedFallback ? "basic-template" : process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+          },
+        },
+      });
+
+      // 6. PHASE 3: Smart skill matching with AI
+      let matchScore: number;
+      let matchedSkills: string[];
+      let missingSkills: string[];
+      let matchExplanation: string | undefined;
+
+      if (!usedFallback && jobDetails.requiredSkills.length > 0) {
+        try {
+          const smartMatch = await performSmartMatching(
+            cvProfile.skills.technical,
+            jobDetails.requiredSkills
+          );
+          matchScore = smartMatch.overallMatchScore;
+          matchedSkills = [
+            ...smartMatch.exactMatches,
+            ...smartMatch.similarMatches.map(m => m.candidateSkill),
+          ];
+          missingSkills = smartMatch.missingCritical;
+          matchExplanation = smartMatch.matchExplanation;
+          console.log(`✅ Smart matching completed: ${matchScore}% match`);
+        } catch (matchError) {
+          console.warn(`⚠️ Smart matching failed, using basic:`, matchError);
+          // Fallback to basic exact matching
+          const candidateSkillSet = new Set(cvProfile.skills.technical.map(norm));
+          const jobSkillsNorm = jobDetails.requiredSkills.map(norm);
+          matchedSkills = jobSkillsNorm.filter(s => candidateSkillSet.has(s));
+          missingSkills = jobSkillsNorm.filter(s => !candidateSkillSet.has(s));
+          matchScore = jobSkillsNorm.length > 0 
+            ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
+            : 0;
+        }
+      } else {
+        // Basic matching for fallback mode
+        const candidateSkillSet = new Set(cvProfile.skills.technical.map(norm));
+        const jobSkillsNorm = jobDetails.requiredSkills.map(norm);
+        matchedSkills = jobSkillsNorm.filter(s => candidateSkillSet.has(s));
+        missingSkills = jobSkillsNorm.filter(s => !candidateSkillSet.has(s));
+        matchScore = jobSkillsNorm.length > 0 
+          ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
+          : 0;
+      }
+
+      // Store match result with AI explanation
+      await prisma.jobCandidateMatch.upsert({
+        where: {
+          jobId_candidateProfileId: {
+            jobId: app.jobId,
+            candidateProfileId: app.candidateProfileId,
+          },
+        },
+        create: {
+          jobId: app.jobId,
+          candidateProfileId: app.candidateProfileId,
+          score: matchScore,
+          matchedSkills,
+          missingSkills,
+          aiExplanation: matchExplanation,
+        },
+        update: {
+          score: matchScore,
+          matchedSkills,
+          missingSkills,
+          aiExplanation: matchExplanation,
+        },
+      });
+
+      // 7. Mark as done
       await prisma.cvDocument.update({
         where: { id: cvDocumentId },
         data: { status: "AI_DONE" },
@@ -223,84 +305,6 @@ new Worker(
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       console.error(`❌ CV processing failed for ${cvDocumentId}:`, errorMessage);
-
-      // === AI FAILURE → FALLBACK ===
-      if (isAiFailure(failReason)) {
-        const cv = await prisma.cvDocument.findUnique({
-          where: { id: cvDocumentId },
-          select: {
-            extractedText: true,
-            application: {
-              select: {
-                jobId: true,
-                candidateProfileId: true,
-                job: { select: { requirements: true } },
-              },
-            },
-          },
-        });
-
-        const extractedText = cv?.extractedText ?? "";
-        const { skills, summary, meta } = fallbackAi(extractedText);
-
-        await prisma.aiOutput.create({
-          data: {
-            cvDocumentId,
-            type: "SKILLS",
-            outputJson: { skills },
-            modelMeta: meta,
-          },
-        });
-
-        await prisma.aiOutput.create({
-          data: {
-            cvDocumentId,
-            type: "SUMMARY",
-            outputJson: { summary },
-            modelMeta: meta,
-          },
-        });
-
-        // deterministic matching tetap jalan
-        if (cv?.application) {
-          const jobSkills = getJobSkillsFromRequirements(
-            cv.application.job.requirements
-          );
-          const { score, matched, missing } = computeMatchScore(skills, jobSkills);
-
-          await prisma.jobCandidateMatch.upsert({
-            where: {
-              jobId_candidateProfileId: {
-                jobId: cv.application.jobId,
-                candidateProfileId: cv.application.candidateProfileId,
-              },
-            },
-            create: {
-              jobId: cv.application.jobId,
-              candidateProfileId: cv.application.candidateProfileId,
-              score,
-              matchedSkills: matched,
-              missingSkills: missing,
-            },
-            update: {
-              score,
-              matchedSkills: matched,
-              missingSkills: missing,
-            },
-          });
-        }
-
-        await prisma.cvDocument.update({
-          where: { id: cvDocumentId },
-          data: {
-            status: "AI_DONE",
-            errorMessage,   // disimpan sebagai warning
-            failReason,     // info kenapa fallback
-          },
-        });
-
-        return { ok: true, fallback: true };
-      }
 
       // === NON-AI FAILURE (tetap FAILED) ===
       await prisma.cvDocument.update({
@@ -319,3 +323,4 @@ new Worker(
 );
 
 console.log("✅ Worker started. Waiting for jobs in queue: cv-processing");
+

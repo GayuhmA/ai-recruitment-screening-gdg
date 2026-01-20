@@ -35,8 +35,9 @@ export function useCVStatus(cvId: string | undefined, enablePolling = false) {
     queryKey: queryKeys.cvs.status(cvId!),
     queryFn: () => api.cvs.getStatus(cvId!),
     enabled: !!cvId,
-    // Poll every 3 seconds when enabled (for tracking processing status)
-    refetchInterval: enablePolling ? 3000 : false,
+    // Poll every 2 seconds when enabled (faster response time)
+    refetchInterval: enablePolling ? 2000 : false,
+    staleTime: 0, // Always fetch fresh data
   });
 }
 

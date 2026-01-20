@@ -78,7 +78,7 @@ export default function CandidatesPage() {
   }, []);
 
   const getInitials = (name: string | undefined | null) => {
-    if (!name) return "??";
+    if (!name) return "NA";
     return name
       .split(" ")
       .map((n) => n[0])
@@ -268,10 +268,10 @@ export default function CandidatesPage() {
                                   </div>
                                   <div>
                                     <h3 className="font-semibold text-white group-hover:text-violet-400 transition-colors">
-                                      {candidate.name || "Unknown Candidate"}
+                                      {candidate.name}
                                     </h3>
                                     <p className="text-xs text-zinc-500">
-                                      {candidate.email || "No email"}
+                                      {candidate.email || "No email provided"}
                                     </p>
                                   </div>
                                 </div>
@@ -289,27 +289,55 @@ export default function CandidatesPage() {
                                     <p className="text-xs text-zinc-500 mb-1">
                                       Applied for
                                     </p>
-                                    <p className="text-sm text-zinc-300">
-                                      {primaryApplication.job?.title || "N/A"}
+                                    <p className="text-sm text-zinc-300 font-medium">
+                                      {primaryApplication.job?.title || "Position"}
                                     </p>
+                                    {primaryApplication.job?.department && (
+                                      <p className="text-xs text-zinc-500 capitalize mt-0.5">
+                                        {primaryApplication.job.department}
+                                      </p>
+                                    )}
                                   </div>
 
-                                  <div className="mb-4">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs text-zinc-500">
-                                        Match Score
-                                      </span>
-                                      <span className="text-sm font-semibold text-violet-400">
-                                        {matchScore}%
-                                      </span>
+                                  {matchScore > 0 ? (
+                                    <div className="mb-4">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs text-zinc-500">
+                                          Match Score
+                                        </span>
+                                        <span className={`text-sm font-semibold ${
+                                          matchScore >= 80
+                                            ? 'text-emerald-400'
+                                            : matchScore >= 60
+                                            ? 'text-violet-400'
+                                            : matchScore >= 40
+                                            ? 'text-yellow-400'
+                                            : 'text-red-400'
+                                        }`}>
+                                          {matchScore}%
+                                        </span>
+                                      </div>
+                                      <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${
+                                            matchScore >= 80
+                                              ? 'bg-gradient-to-r from-emerald-500 to-green-600'
+                                              : matchScore >= 60
+                                              ? 'bg-gradient-to-r from-violet-500 to-indigo-600'
+                                              : matchScore >= 40
+                                              ? 'bg-gradient-to-r from-yellow-500 to-orange-600'
+                                              : 'bg-gradient-to-r from-red-500 to-rose-600'
+                                          }`}
+                                          style={{ width: `${matchScore}%` }}
+                                        />
+                                      </div>
                                     </div>
-                                    <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                                      <div
-                                        className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-600"
-                                        style={{ width: `${matchScore}%` }}
-                                      />
+                                  ) : (
+                                    <div className="mb-4 flex items-center gap-2 text-yellow-400">
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span className="text-xs">Processing CV...</span>
                                     </div>
-                                  </div>
+                                  )}
                                 </>
                               )}
 

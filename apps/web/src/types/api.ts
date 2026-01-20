@@ -72,6 +72,7 @@ export interface Job {
   status: JobStatus;
   requiredSkills: string[];
   requirements?: {
+    requiredSkills?: string[];
     experienceYears?: number;
     education?: string;
     location?: string;
@@ -80,6 +81,7 @@ export interface Job {
   updatedAt: string;
   _count?: {
     applications?: number;
+    hired?: number;
   };
 }
 
@@ -108,6 +110,8 @@ export interface Application {
   candidateId: string;
   status: ApplicationStatus;
   matchScore: number;
+  matchedSkills?: string[];
+  missingSkills?: string[];
   createdAt: string;
   updatedAt: string;
   job?: Job;
@@ -248,9 +252,22 @@ export interface JobMatchResponse {
 export interface JobMatchesResponse extends PaginatedResponse<JobMatchResponse> {}
 
 export interface JobCandidateRanking {
-  candidate: CandidateProfile;
-  application: Application;
+  candidate: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+  };
+  application: {
+    id: string;
+    status: ApplicationStatus;
+    createdAt: string;
+  };
   matchScore: number;
+  matchedSkills: string[];
+  missingSkills: string[];
+  aiExplanation: string | null;
+  cvStatus?: CvStatus;
 }
 
 export interface JobCandidateRankingsResponse extends PaginatedResponse<JobCandidateRanking> {}
