@@ -1,27 +1,77 @@
-"use client";
+'use client';
 
-import { use } from "react";
-import { Header } from "@/components/layout/header";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { MatchScoreRing } from "@/components/ui/match-score-ring";
+import { use } from 'react';
+import { Header } from '@/components/layout/header';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Mail,
-  Phone,
-  Calendar,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  ArrowLeft,
   FileText,
-  Briefcase,
+  Download,
+  Sparkles,
   CheckCircle2,
   XCircle,
+  Lightbulb,
+  User,
+  Mail,
+  Calendar,
   Loader2,
-  ArrowLeft,
-} from "lucide-react";
-import Link from "next/link";
-import { useCandidate } from "@/hooks/useCandidates";
-import { format } from "date-fns";
+  AlertCircle,
+} from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { MatchScoreRing } from '@/components/features/match-score-ring';
+import { useState, useEffect } from 'react';
+import { Sidebar } from '@/components/layout/sidebar';
+import { useCandidate } from '@/hooks/useCandidates';
+import { ApplicationStatus } from '@/types/api';
+
+type CandidateStatus = 'New' | 'Accepted' | 'Rejected';
+
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function getStatusColor(status: CandidateStatus): string {
+  switch (status) {
+    case 'New':
+      return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    case 'Accepted':
+      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+    case 'Rejected':
+      return 'bg-red-500/20 text-red-400 border-red-500/30';
+    default:
+      return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30';
+  }
+}
+
+function mapApplicationStatusToUI(
+  appStatus: ApplicationStatus | undefined,
+): CandidateStatus {
+  switch (appStatus) {
+    case ApplicationStatus.HIRED:
+    case ApplicationStatus.OFFERED:
+      return 'Accepted';
+    case ApplicationStatus.REJECTED:
+      return 'Rejected';
+    default:
+      return 'New';
+  }
+}
 
 export default function CandidateDetailPage({
   params,
@@ -29,37 +79,34 @@ export default function CandidateDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { data: candidateData, isLoading, error } = useCandidate(id);
+  const router = useRouter();
+
+  const { data: candidate, isLoading, error } = useCandidate(id);
+
+  const primaryApplication = candidate?.applications?.[0];
+  const initialStatus = mapApplicationStatusToUI(primaryApplication?.status);
+
+  const [status, setStatus] = useState<CandidateStatus>('New');
+
+  useEffect(() => {
+    if (primaryApplication) {
+      setStatus(mapApplicationStatusToUI(primaryApplication.status));
+    }
+  }, [primaryApplication]);
 
   if (isLoading) {
     return (
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <main className="flex-1 overflow-auto">
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
-            <span className="ml-3 text-zinc-400">Loading candidate details...</span>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (error || !candidateData) {
-    return (
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <p className="text-zinc-400">Failed to load candidate details</p>
-              <Link href="/candidates">
-                <Button variant="ghost" className="mt-4">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Candidates
-                </Button>
-              </Link>
+          <div className="flex flex-col h-full">
+            <Header
+              title="Loading..."
+              description="Fetching candidate details"
+            />
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-violet-500" />
+              <span className="ml-3 text-zinc-400">Loading candidate...</span>
             </div>
           </div>
         </main>
@@ -67,253 +114,316 @@ export default function CandidateDetailPage({
     );
   }
 
-  const candidate = candidateData;
-  const initials = candidate.name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  if (error || !candidate) {
+    return (
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-auto">
+          <div className="flex flex-col h-full">
+            <Header
+              title="Candidate Not Found"
+              description="The requested candidate does not exist"
+            />
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-white mb-2">
+                  Candidate Not Found
+                </h2>
+                <p className="text-zinc-400 mb-4">
+                  The candidate with ID "{id}" does not exist.
+                </p>
+                <Link href="/candidates">
+                  <Button>Back to Candidates</Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
-  // Get latest application for this candidate
-  const latestApp = candidate.applications?.[0];
-  const matchScore = latestApp?.matchScore ?? 0;
-  const matchedSkills = latestApp?.matchedSkills ?? [];
-  const missingSkills = latestApp?.missingSkills ?? [];
+  const matchScore = primaryApplication?.matchScore || 0;
+  const matchedSkills =
+    primaryApplication?.matchedSkills || candidate.skills || [];
+  const missingSkills = primaryApplication?.missingSkills || [];
+  const jobTitle = primaryApplication?.job?.title || 'Position';
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
       <main className="flex-1 overflow-auto">
-        <Header 
-          title={candidate.name} 
-          description="Candidate Profile" 
-        />
-        
-        <div className="p-6 space-y-6">
-          {/* Back Button */}
-          <Link href="/candidates">
-            <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-white">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Candidates
-            </Button>
-          </Link>
+        <div className="flex flex-col h-full">
+          <Header
+            title={candidate.name}
+            description={`Candidate for ${jobTitle}`}
+          />
 
-          {/* Profile Overview */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left Column - Profile Info */}
-            <div className="lg:col-span-2 space-y-6">
-              <Card className="bg-zinc-900 border-zinc-800">
-                <CardHeader>
-                  <div className="flex items-start gap-4">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold">
-                      {initials}
-                    </div>
-                    <div className="flex-1">
-                      <CardTitle className="text-2xl text-white mb-2">
-                        {candidate.name}
-                      </CardTitle>
-                      <div className="space-y-2">
-                        {candidate.email && (
-                          <div className="flex items-center gap-2 text-zinc-400">
-                            <Mail className="w-4 h-4" />
-                            <span className="text-sm">{candidate.email}</span>
-                          </div>
-                        )}
-                        {candidate.phone && (
-                          <div className="flex items-center gap-2 text-zinc-400">
-                            <Phone className="w-4 h-4" />
-                            <span className="text-sm">{candidate.phone}</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 text-zinc-400">
-                          <Calendar className="w-4 h-4" />
-                          <span className="text-sm">
-                            Applied on {format(new Date(candidate.createdAt), "MMMM d, yyyy")}
-                          </span>
-                        </div>
-                      </div>
+          <div className="flex-1 overflow-hidden">
+            <div className="h-full flex">
+              {/* Left Side - PDF Viewer */}
+              <div className="w-[60%] border-r border-zinc-800 flex flex-col">
+                {/* PDF Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-zinc-400 hover:text-white gap-1"
+                      onClick={() => router.back()}
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Back
+                    </Button>
+                    <Separator
+                      orientation="vertical"
+                      className="h-6 bg-zinc-800"
+                    />
+                    <div className="flex items-center gap-2 text-zinc-400">
+                      <FileText className="w-4 h-4" />
+                      <span className="text-sm">Resume.pdf</span>
                     </div>
                   </div>
-                </CardHeader>
-              </Card>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download
+                  </Button>
+                </div>
 
-              {/* Skills Section */}
-              {(matchedSkills.length > 0 || missingSkills.length > 0) && (
-                <Card className="bg-zinc-900 border-zinc-800">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-white">Skills Analysis</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {matchedSkills.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <CheckCircle2 className="w-5 h-5 text-green-500" />
-                          <h3 className="text-sm font-medium text-zinc-300">
-                            Matched Skills ({matchedSkills.length})
-                          </h3>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {matchedSkills.map((skill: string) => (
-                            <Badge
-                              key={skill}
-                              className="bg-green-500/20 text-green-400 border-green-500/30"
-                            >
-                              {skill}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {/* PDF Viewer Placeholder */}
+                <div className="flex-1 flex items-center justify-center bg-zinc-950/50 p-8">
+                  <div className="w-full max-w-2xl aspect-[8.5/11] bg-white rounded-lg shadow-2xl flex flex-col items-center justify-center p-8">
+                    <FileText className="w-16 h-16 text-zinc-300 mb-4" />
+                    <h3 className="text-lg font-medium text-zinc-900 mb-2">
+                      Resume Preview
+                    </h3>
+                    <p className="text-sm text-zinc-500 text-center max-w-xs">
+                      PDF viewer integration would display the candidate's
+                      resume here
+                    </p>
+                    <div className="mt-6 w-full max-w-sm space-y-3">
+                      <div className="h-4 bg-zinc-200 rounded animate-pulse" />
+                      <div className="h-4 bg-zinc-200 rounded animate-pulse w-4/5" />
+                      <div className="h-4 bg-zinc-200 rounded animate-pulse w-3/4" />
+                      <div className="h-8" />
+                      <div className="h-3 bg-zinc-100 rounded animate-pulse" />
+                      <div className="h-3 bg-zinc-100 rounded animate-pulse w-5/6" />
+                      <div className="h-3 bg-zinc-100 rounded animate-pulse w-4/5" />
+                      <div className="h-3 bg-zinc-100 rounded animate-pulse w-full" />
+                      <div className="h-3 bg-zinc-100 rounded animate-pulse w-3/4" />
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                    {matchedSkills.length > 0 && missingSkills.length > 0 && (
-                      <Separator className="bg-zinc-800" />
-                    )}
-
-                    {missingSkills.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <XCircle className="w-5 h-5 text-red-500" />
-                          <h3 className="text-sm font-medium text-zinc-300">
-                            Missing Skills ({missingSkills.length})
-                          </h3>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {missingSkills.map((skill: string) => (
-                            <Badge
-                              key={skill}
-                              className="bg-red-500/20 text-red-400 border-red-500/30"
-                            >
-                              {skill}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Applications History */}
-              {candidate.applications && candidate.applications.length > 0 && (
-                <Card className="bg-zinc-900 border-zinc-800">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-white">
-                      Application History
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {candidate.applications.map((app: any) => (
-                        <Link
-                          key={app.id}
-                          href={`/jobs/${app.jobId}`}
-                          className="block p-4 rounded-lg bg-zinc-800/50 border border-zinc-700 hover:border-violet-500/50 transition-colors"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-3">
-                              <Briefcase className="w-5 h-5 text-violet-400 mt-1" />
-                              <div>
-                                <h4 className="font-medium text-white">
-                                  {app.job?.title || "Position"}
-                                </h4>
-                                {app.job?.department && (
-                                  <p className="text-xs text-zinc-500 capitalize">
-                                    {app.job.department}
-                                  </p>
-                                )}
-                                <p className="text-sm text-zinc-400 mt-1">
-                                  Applied {format(new Date(app.createdAt), "MMM d, yyyy")}
-                                </p>
-                                {app.matchScore > 0 && (
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <span className="text-xs text-zinc-500">Match:</span>
-                                    <span className={`text-xs font-semibold ${
-                                      app.matchScore >= 80
-                                        ? 'text-emerald-400'
-                                        : app.matchScore >= 60
-                                        ? 'text-violet-400'
-                                        : app.matchScore >= 40
-                                        ? 'text-yellow-400'
-                                        : 'text-red-400'
-                                    }`}>
-                                      {app.matchScore}%
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <Badge
-                              variant="secondary"
-                              className="bg-blue-500/20 text-blue-400"
-                            >
-                              {app.status}
-                            </Badge>
+              {/* Right Side - Candidate Info */}
+              <div className="w-[40%] bg-zinc-900/30">
+                <ScrollArea className="h-full">
+                  <div className="p-6 space-y-6">
+                    {/* Candidate Info */}
+                    <Card className="bg-zinc-900 border-zinc-800">
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-4">
+                          <div className="w-14 h-14 rounded-full bg-linear-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-xl font-semibold">
+                            {candidate.name
+                              .split(' ')
+                              .map((n) => n[0])
+                              .join('')
+                              .toUpperCase()
+                              .slice(0, 2)}
                           </div>
-                        </Link>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                          <div className="flex-1">
+                            <h2 className="text-lg font-semibold text-white">
+                              {candidate.name}
+                            </h2>
+                            <div className="flex items-center gap-2 text-zinc-400 text-sm mt-1">
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>{candidate.email || 'No email'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-zinc-500 text-sm mt-1">
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>
+                                Uploaded {formatDate(candidate.createdAt)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex items-center gap-3">
+                          <span className="text-sm text-zinc-400">Status:</span>
+                          <Select
+                            value={status}
+                            onValueChange={(value) =>
+                              setStatus(value as CandidateStatus)
+                            }
+                          >
+                            <SelectTrigger
+                              className={`w-32 h-8 text-xs border ${getStatusColor(
+                                status,
+                              )} bg-transparent`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-800 border-zinc-700">
+                              <SelectItem
+                                value="New"
+                                className="text-white focus:bg-zinc-700"
+                              >
+                                New
+                              </SelectItem>
+                              <SelectItem
+                                value="Accepted"
+                                className="text-white focus:bg-zinc-700"
+                              >
+                                Accepted
+                              </SelectItem>
+                              <SelectItem
+                                value="Rejected"
+                                className="text-white focus:bg-zinc-700"
+                              >
+                                Rejected
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-            {/* Right Column - Match Score */}
-            <div className="space-y-6">
-              <Card className="bg-zinc-900 border-zinc-800">
-                <CardHeader>
-                  <CardTitle className="text-lg text-white text-center">
-                    Match Score
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col items-center py-6">
-                  {matchScore > 0 ? (
-                    <>
-                      <MatchScoreRing score={matchScore} size="lg" />
-                      <p className="text-sm text-zinc-400 mt-4 text-center">
-                        {matchScore >= 80
-                          ? "Excellent match for the position"
-                          : matchScore >= 60
-                          ? "Good match with some gaps"
-                          : matchScore >= 40
-                          ? "Moderate match, needs evaluation"
-                          : "Limited match to requirements"}
-                      </p>
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center gap-3">
-                      <Loader2 className="w-12 h-12 animate-spin text-yellow-400" />
-                      <p className="text-sm text-yellow-400 text-center">
-                        AI is analyzing CV...
-                      </p>
-                      <p className="text-xs text-zinc-500 text-center">
-                        Score will appear when analysis is complete
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    {/* Match Score */}
+                    <Card className="bg-zinc-900 border-zinc-800">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base text-white flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-violet-400" />
+                          AI Match Score
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="flex justify-center pb-6">
+                        <MatchScoreRing score={matchScore} />
+                      </CardContent>
+                    </Card>
 
-              {/* Quick Actions */}
-              <Card className="bg-zinc-900 border-zinc-800">
-                <CardHeader>
-                  <CardTitle className="text-lg text-white">Quick Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Button className="w-full bg-violet-600 hover:bg-violet-700">
-                    <Mail className="w-4 h-4 mr-2" />
-                    Send Email
-                  </Button>
-                  <Button variant="outline" className="w-full border-zinc-700 text-zinc-300">
-                    <FileText className="w-4 h-4 mr-2" />
-                    Download CV
-                  </Button>
-                  <Button variant="outline" className="w-full border-zinc-700 text-zinc-300">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Schedule Interview
-                  </Button>
-                </CardContent>
-              </Card>
+                    {/* AI Summary */}
+                    <Card className="bg-zinc-900 border-zinc-800">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base text-white flex items-center gap-2">
+                          <User className="w-4 h-4 text-blue-400" />
+                          Candidate Summary
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm text-zinc-300 leading-relaxed">
+                          {candidate.experience ||
+                            `${candidate.name} is a candidate with skills in ${matchedSkills.slice(0, 3).join(', ')}${matchedSkills.length > 3 ? ` and ${matchedSkills.length - 3} more` : ''}.`}
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    {/* Skills Analysis */}
+                    <Card className="bg-zinc-900 border-zinc-800">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base text-white">
+                          Skills Analysis
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Skills Found */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <span className="text-sm font-medium text-zinc-300">
+                              Skills Found
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {matchedSkills.length > 0 ? (
+                              matchedSkills.map((skill) => (
+                                <Badge
+                                  key={skill}
+                                  variant="secondary"
+                                  className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                >
+                                  {skill}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-sm text-zinc-500">
+                                No skills data available
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Missing Skills */}
+                        {missingSkills.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <XCircle className="w-4 h-4 text-red-400" />
+                              <span className="text-sm font-medium text-zinc-300">
+                                Missing Skills
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {missingSkills.map((skill) => (
+                                <Badge
+                                  key={skill}
+                                  variant="secondary"
+                                  className="bg-red-500/10 text-red-400 border border-red-500/20"
+                                >
+                                  {skill}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* AI Reasoning */}
+                    <Card className="bg-zinc-900 border-zinc-800">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base text-white flex items-center gap-2">
+                          <Lightbulb className="w-4 h-4 text-amber-400" />
+                          AI Reasoning
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+                          <p className="text-sm text-zinc-300 leading-relaxed italic">
+                            &quot;Based on the candidate's profile, they have a{' '}
+                            {matchScore}% match score for this position.
+                            {matchedSkills.length > 0 &&
+                              ` Key strengths include ${matchedSkills.slice(0, 3).join(', ')}.`}
+                            {missingSkills.length > 0 &&
+                              ` Areas for development include ${missingSkills.slice(0, 2).join(' and ')}.`}
+                            &quot;
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        className="flex-1 bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
+                        onClick={() => setStatus('Accepted')}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                        onClick={() => setStatus('Rejected')}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
           </div>
         </div>
