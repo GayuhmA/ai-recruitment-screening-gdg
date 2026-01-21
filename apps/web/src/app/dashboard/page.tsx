@@ -352,52 +352,59 @@ export default function DashboardPage() {
                   </CardHeader>
                   <CardContent>
                     {jobsData && jobsData.data.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {jobsData.data.slice(0, 4).map((job) => (
-                          <Link
-                            key={job.id}
-                            href={`/jobs/${job.id}`}
-                            className="p-4 rounded-lg border border-zinc-800 hover:border-violet-500/50 bg-zinc-800/30 hover:bg-zinc-800/50 transition-all group"
-                          >
-                            <div className="flex items-start justify-between mb-3">
-                              <Badge
-                                variant="secondary"
-                                className="bg-zinc-700 text-zinc-300"
-                              >
-                                {job.department
-                                  ? job.department.charAt(0).toUpperCase() +
-                                    job.department.slice(1)
-                                  : 'General'}
-                              </Badge>
-                              <span className="text-xs text-zinc-500">
-                                {job._count?.applications || 0} applicants
-                              </span>
-                            </div>
-                            <h3 className="font-medium text-white group-hover:text-violet-400 transition-colors mb-2">
-                              {job.title}
-                            </h3>
-                            {job.requiredSkills &&
-                              job.requiredSkills.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {job.requiredSkills
-                                    .slice(0, 3)
-                                    .map((skill, idx) => (
-                                      <span
-                                        key={idx}
-                                        className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400"
-                                      >
-                                        {skill}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {[...jobsData.data]
+                          .sort(
+                            (a, b) =>
+                              new Date(b.createdAt).getTime() -
+                              new Date(a.createdAt).getTime(),
+                          )
+                          .slice(0, 6)
+                          .map((job) => (
+                            <Link
+                              key={job.id}
+                              href={`/jobs/${job.id}`}
+                              className="p-4 rounded-lg border border-zinc-800 hover:border-violet-500/50 bg-zinc-800/30 hover:bg-zinc-800/50 transition-all group"
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-zinc-700 text-zinc-300"
+                                >
+                                  {job.department
+                                    ? job.department.charAt(0).toUpperCase() +
+                                      job.department.slice(1)
+                                    : 'General'}
+                                </Badge>
+                                <span className="text-xs text-zinc-500">
+                                  {job._count?.applications || 0} applicants
+                                </span>
+                              </div>
+                              <h3 className="font-medium text-white group-hover:text-violet-400 transition-colors mb-2">
+                                {job.title}
+                              </h3>
+                              {job.requiredSkills &&
+                                job.requiredSkills.length > 0 && (
+                                  <div className="flex flex-wrap gap-1">
+                                    {job.requiredSkills
+                                      .slice(0, 3)
+                                      .map((skill, idx) => (
+                                        <span
+                                          key={idx}
+                                          className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400"
+                                        >
+                                          {skill}
+                                        </span>
+                                      ))}
+                                    {job.requiredSkills.length > 3 && (
+                                      <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500">
+                                        +{job.requiredSkills.length - 3}
                                       </span>
-                                    ))}
-                                  {job.requiredSkills.length > 3 && (
-                                    <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-500">
-                                      +{job.requiredSkills.length - 3}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                          </Link>
-                        ))}
+                                    )}
+                                  </div>
+                                )}
+                            </Link>
+                          ))}
                       </div>
                     ) : (
                       <div className="text-center py-8 text-zinc-500">
