@@ -14,14 +14,14 @@ import {
 } from "@/components/ui/select";
 import { Search, ArrowUpDown, Eye, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useCandidates } from "@/hooks/useCandidates";
 import { ApplicationStatus } from "@/types/api";
 
 export default function CandidatesPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"score" | "date">("score");
 
   // Fetch candidates
@@ -39,13 +39,21 @@ export default function CandidatesPage() {
         query === "" ||
         candidate.name?.toLowerCase().includes(query) ||
         candidate.email?.toLowerCase().includes(query) ||
-        candidate.phone?.toLowerCase().includes(query) ||
-        candidate.skills?.some(skill => skill.toLowerCase().includes(query));
+        candidate.skills?.some((skill) => skill.toLowerCase().includes(query));
 
-      // Status filter - check if candidate has any application with the filtered status
-      const matchesStatus =
-        statusFilter === "all" ||
-        candidate.applications?.some((app) => app.status === statusFilter);
+      const primaryStatus = candidate.applications?.[0]?.status;
+      let matchesStatus = statusFilter === 'all';
+      if (statusFilter === ApplicationStatus.APPLIED) {
+        matchesStatus =
+          primaryStatus === ApplicationStatus.APPLIED ||
+          primaryStatus === ApplicationStatus.IN_REVIEW;
+      } else if (statusFilter === ApplicationStatus.HIRED) {
+        matchesStatus =
+          primaryStatus === ApplicationStatus.HIRED ||
+          primaryStatus === ApplicationStatus.OFFERED;
+      } else if (statusFilter === ApplicationStatus.REJECTED) {
+        matchesStatus = primaryStatus === ApplicationStatus.REJECTED;
+      }
 
       return matchesSearch && matchesStatus;
     });
@@ -67,16 +75,6 @@ export default function CandidatesPage() {
     return filtered;
   }, [candidatesData, searchQuery, statusFilter, sortBy]);
 
-  // Check if any filter is active
-  const hasActiveFilters = searchQuery !== "" || statusFilter !== "all";
-
-  // Clear all filters
-  const clearFilters = useCallback(() => {
-    setSearchQuery("");
-    setStatusFilter("all");
-    setSortBy("score");
-  }, []);
-
   const getInitials = (name: string | undefined | null) => {
     if (!name) return "NA";
     return name
@@ -87,24 +85,39 @@ export default function CandidatesPage() {
       .slice(0, 2);
   };
 
-  const getStatusColor = (status: ApplicationStatus) => {
+  const getAvatarGradient = (score: number) => {
+    if (score >= 80) return "from-emerald-500 to-teal-600";
+    if (score >= 60) return "from-violet-500 to-indigo-600";
+    if (score >= 40) return "from-amber-500 to-orange-600";
+    return "from-red-500 to-rose-600";
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "text-emerald-400";
+    if (score >= 60) return "text-violet-400";
+    if (score >= 40) return "text-amber-400";
+    return "text-red-400";
+  };
+
+  const getScoreGradient = (score: number) => {
+    if (score >= 80) return "from-emerald-500 to-teal-600";
+    if (score >= 60) return "from-violet-500 to-indigo-600";
+    if (score >= 40) return "from-amber-500 to-orange-600";
+    return "from-red-500 to-rose-600";
+  };
+
+  const getStatusBadge = (status: ApplicationStatus | undefined) => {
     switch (status) {
-      case ApplicationStatus.APPLIED:
-        return "bg-blue-500/20 text-blue-400";
-      case ApplicationStatus.IN_REVIEW:
-        return "bg-yellow-500/20 text-yellow-400";
-      case ApplicationStatus.SHORTLISTED:
-        return "bg-purple-500/20 text-purple-400";
-      case ApplicationStatus.INTERVIEW:
-        return "bg-indigo-500/20 text-indigo-400";
-      case ApplicationStatus.OFFERED:
-        return "bg-cyan-500/20 text-cyan-400";
       case ApplicationStatus.HIRED:
-        return "bg-emerald-500/20 text-emerald-400";
+      case ApplicationStatus.OFFERED:
+        return {
+          label: "Accepted",
+          className: "bg-emerald-500/20 text-emerald-400",
+        };
       case ApplicationStatus.REJECTED:
-        return "bg-red-500/20 text-red-400";
+        return { label: "Rejected", className: "bg-red-500/20 text-red-400" };
       default:
-        return "bg-zinc-700 text-zinc-400";
+        return { label: 'New', className: 'bg-blue-500/20 text-blue-400' };
     }
   };
 
@@ -151,12 +164,7 @@ export default function CandidatesPage() {
                       className="w-64 pl-9 bg-zinc-900 border-zinc-800 text-white placeholder:text-zinc-500"
                     />
                   </div>
-                  <Select
-                    value={statusFilter}
-                    onValueChange={(value) =>
-                      setStatusFilter(value as ApplicationStatus | "all")
-                    }
-                  >
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger className="w-32 bg-zinc-900 border-zinc-800 text-white">
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -171,37 +179,13 @@ export default function CandidatesPage() {
                         value={ApplicationStatus.APPLIED}
                         className="text-white focus:bg-zinc-800"
                       >
-                        Applied
-                      </SelectItem>
-                      <SelectItem
-                        value={ApplicationStatus.IN_REVIEW}
-                        className="text-white focus:bg-zinc-800"
-                      >
-                        In Review
-                      </SelectItem>
-                      <SelectItem
-                        value={ApplicationStatus.SHORTLISTED}
-                        className="text-white focus:bg-zinc-800"
-                      >
-                        Shortlisted
-                      </SelectItem>
-                      <SelectItem
-                        value={ApplicationStatus.INTERVIEW}
-                        className="text-white focus:bg-zinc-800"
-                      >
-                        Interview
-                      </SelectItem>
-                      <SelectItem
-                        value={ApplicationStatus.OFFERED}
-                        className="text-white focus:bg-zinc-800"
-                      >
-                        Offered
+                        New
                       </SelectItem>
                       <SelectItem
                         value={ApplicationStatus.HIRED}
                         className="text-white focus:bg-zinc-800"
                       >
-                        Hired
+                        Accepted
                       </SelectItem>
                       <SelectItem
                         value={ApplicationStatus.REJECTED}
@@ -215,55 +199,44 @@ export default function CandidatesPage() {
                     variant="outline"
                     size="sm"
                     className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 gap-2"
-                    onClick={() => setSortBy(sortBy === "score" ? "date" : "score")}
+                    onClick={() =>
+                      setSortBy(sortBy === 'score' ? 'date' : 'score')
+                    }
                   >
                     <ArrowUpDown className="w-4 h-4" />
-                    Sort by {sortBy === "score" ? "Score" : "Date"}
+                    Sort by {sortBy === 'score' ? 'Score' : 'Date'}
                   </Button>
-                  {hasActiveFilters && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearFilters}
-                      className="text-zinc-400 hover:text-white"
-                    >
-                      Clear filters
-                    </Button>
-                  )}
                 </div>
-
-                {/* Results count */}
-                {candidatesData?.data && (
-                  <div className="text-sm text-zinc-400">
-                    Showing <span className="text-white font-semibold">{filteredCandidates.length}</span> of{" "}
-                    <span className="text-white font-semibold">{candidatesData.data.length}</span> candidates
-                  </div>
-                )}
 
                 {/* Candidates Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredCandidates.length === 0 ? (
                     <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
                       <p className="text-zinc-400 mb-4">
-                        {searchQuery || statusFilter !== "all"
-                          ? "No candidates match your filters"
-                          : "No candidates yet. Candidates will appear here when they apply to your jobs."}
+                        {searchQuery || statusFilter !== 'all'
+                          ? 'No candidates match your filters'
+                          : 'No candidates yet. Candidates will appear here when they apply to your jobs.'}
                       </p>
                     </div>
                   ) : (
                     filteredCandidates.map((candidate) => {
                       const primaryApplication = candidate.applications?.[0];
                       const matchScore = primaryApplication?.matchScore || 0;
-                      const status =
-                        primaryApplication?.status || ApplicationStatus.APPLIED;
+                      const status = primaryApplication?.status;
+                      const statusBadge = getStatusBadge(status);
 
                       return (
-                        <Link key={candidate.id} href={`/candidates/${candidate.id}`}>
+                        <Link
+                          key={candidate.id}
+                          href={`/candidates/${candidate.id}`}
+                        >
                           <Card className="bg-zinc-900 border-zinc-800 hover:border-violet-500/50 transition-all duration-200 cursor-pointer group h-full">
                             <CardContent className="p-5">
                               <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white font-semibold">
+                                  <div
+                                    className={`w-12 h-12 rounded-full bg-linear-to-br ${getAvatarGradient(matchScore)} flex items-center justify-center text-white font-semibold`}
+                                  >
                                     {getInitials(candidate.name)}
                                   </div>
                                   <div>
@@ -271,93 +244,66 @@ export default function CandidatesPage() {
                                       {candidate.name}
                                     </h3>
                                     <p className="text-xs text-zinc-500">
-                                      {candidate.email || "No email provided"}
+                                      {candidate.email || 'No email'}
                                     </p>
                                   </div>
                                 </div>
                                 <Badge
                                   variant="secondary"
-                                  className={getStatusColor(status)}
+                                  className={statusBadge.className}
                                 >
-                                  {status}
+                                  {statusBadge.label}
                                 </Badge>
                               </div>
 
-                              {primaryApplication && (
-                                <>
-                                  <div className="mb-4">
-                                    <p className="text-xs text-zinc-500 mb-1">
-                                      Applied for
-                                    </p>
-                                    <p className="text-sm text-zinc-300 font-medium">
-                                      {primaryApplication.job?.title || "Position"}
-                                    </p>
-                                    {primaryApplication.job?.department && (
-                                      <p className="text-xs text-zinc-500 capitalize mt-0.5">
-                                        {primaryApplication.job.department}
-                                      </p>
+                              <div className="mb-4">
+                                <p className="text-xs text-zinc-500 mb-1">
+                                  Applied for
+                                </p>
+                                <p className="text-sm text-zinc-300">
+                                  {primaryApplication?.job?.title || 'Position'}
+                                </p>
+                              </div>
+
+                              <div className="mb-4">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs text-zinc-500">
+                                    Match Score
+                                  </span>
+                                  <span
+                                    className={`text-sm font-semibold ${getScoreColor(matchScore)}`}
+                                  >
+                                    {matchScore}%
+                                  </span>
+                                </div>
+                                <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full bg-linear-to-r ${getScoreGradient(matchScore)}`}
+                                    style={{ width: `${matchScore}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              {candidate.skills &&
+                                candidate.skills.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mb-4">
+                                    {candidate.skills
+                                      .slice(0, 3)
+                                      .map((skill, idx) => (
+                                        <span
+                                          key={idx}
+                                          className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400"
+                                        >
+                                          {skill}
+                                        </span>
+                                      ))}
+                                    {candidate.skills.length > 3 && (
+                                      <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
+                                        +{candidate.skills.length - 3}
+                                      </span>
                                     )}
                                   </div>
-
-                                  {matchScore > 0 ? (
-                                    <div className="mb-4">
-                                      <div className="flex items-center justify-between mb-1">
-                                        <span className="text-xs text-zinc-500">
-                                          Match Score
-                                        </span>
-                                        <span className={`text-sm font-semibold ${
-                                          matchScore >= 80
-                                            ? 'text-emerald-400'
-                                            : matchScore >= 60
-                                            ? 'text-violet-400'
-                                            : matchScore >= 40
-                                            ? 'text-yellow-400'
-                                            : 'text-red-400'
-                                        }`}>
-                                          {matchScore}%
-                                        </span>
-                                      </div>
-                                      <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                                        <div
-                                          className={`h-full rounded-full ${
-                                            matchScore >= 80
-                                              ? 'bg-gradient-to-r from-emerald-500 to-green-600'
-                                              : matchScore >= 60
-                                              ? 'bg-gradient-to-r from-violet-500 to-indigo-600'
-                                              : matchScore >= 40
-                                              ? 'bg-gradient-to-r from-yellow-500 to-orange-600'
-                                              : 'bg-gradient-to-r from-red-500 to-rose-600'
-                                          }`}
-                                          style={{ width: `${matchScore}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="mb-4 flex items-center gap-2 text-yellow-400">
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                      <span className="text-xs">Processing CV...</span>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-
-                              {candidate.skills && candidate.skills.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5 mb-4">
-                                  {candidate.skills.slice(0, 3).map((skill, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400"
-                                    >
-                                      {skill}
-                                    </span>
-                                  ))}
-                                  {candidate.skills.length > 3 && (
-                                    <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400">
-                                      +{candidate.skills.length - 3}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
+                                )}
 
                               <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
                                 <span className="text-xs text-zinc-500">
