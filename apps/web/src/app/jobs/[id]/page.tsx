@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import React, { use } from 'react';
 import { Header } from '@/components/layout/header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,8 +43,12 @@ import Link from 'next/link';
 import { useState, useRef, useMemo } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { useJob, useJobCandidates } from '@/hooks/useJobs';
+import { useUploadCV } from '@/hooks/useCVs';
 import { JobStatus } from '@/types/api';
 import { format } from 'date-fns';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-client';
+import { api } from '@/lib/api';
 
 // Helper function to get initials
 function getInitials(name: string): string {
@@ -108,12 +112,20 @@ export default function JobDetailPage({
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  // Constants
+  const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
 
   // Fetch job details and candidates from API
   const { data: job, isLoading: jobLoading } = useJob(id);
   const { data: candidatesData, isLoading: candidatesLoading } =
     useJobCandidates(id);
+
+  // Mutations
+  const uploadCVMutation = useUploadCV();
 
   // Filter candidates based on search and status
   const filteredCandidates = useMemo(() => {
@@ -139,7 +151,10 @@ export default function JobDetailPage({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      setUploadedFiles((prev) => [...prev, ...files]);
+      const validFiles = files.filter(
+        (file) => file.type === 'application/pdf' && file.size <= MAX_FILE_SIZE,
+      );
+      setUploadedFiles((prev) => [...prev, ...validFiles]);
     }
   };
 
@@ -156,14 +171,57 @@ export default function JobDetailPage({
     e.preventDefault();
     setIsDragging(false);
     const files = Array.from(e.dataTransfer.files).filter(
-      (f) => f.type === 'application/pdf',
+      (f) => f.type === 'application/pdf' && f.size <= MAX_FILE_SIZE,
     );
     setUploadedFiles((prev) => [...prev, ...files]);
   };
 
   const handleProcessFiles = async () => {
-    setIsUploadDialogOpen(false);
-    setUploadedFiles([]);
+    if (uploadedFiles.length === 0 || !job) return;
+
+    setIsProcessing(true);
+
+    try {
+      // Process each CV file
+      for (const file of uploadedFiles) {
+        try {
+          // Create candidate profile first
+          const candidateName = file.name
+            .replace('.pdf', '')
+            .replace(/[_-]/g, ' ');
+          const candidate = await api.candidates.create({
+            fullName: candidateName,
+            email: `pending-${Date.now()}@processing.local`,
+          });
+
+          // Create application with candidate profile ID
+          const application = await api.applications.create(job.id, {
+            candidateProfileId: candidate.id,
+          });
+
+          // Upload CV
+          await uploadCVMutation.mutateAsync({
+            applicationId: application.id,
+            file: file,
+          });
+        } catch (error) {
+          console.error(`Failed to process CV: ${file.name}`, error);
+        }
+      }
+
+      // Refresh candidates list
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.jobs.candidates(id),
+      });
+
+      // Close dialog and reset
+      setIsUploadDialogOpen(false);
+      setUploadedFiles([]);
+    } catch (error) {
+      console.error('Failed to process CVs:', error);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const isLoading = jobLoading || candidatesLoading;
@@ -299,14 +357,20 @@ export default function JobDetailPage({
                                 setUploadedFiles([]);
                               }}
                               className="text-zinc-400 hover:text-white"
+                              disabled={isProcessing}
                             >
                               Cancel
                             </Button>
                             <Button
                               className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500"
                               onClick={handleProcessFiles}
-                              disabled={uploadedFiles.length === 0}
+                              disabled={
+                                uploadedFiles.length === 0 || isProcessing
+                              }
                             >
+                              {isProcessing && (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              )}
                               Process with AI
                             </Button>
                           </DialogFooter>
