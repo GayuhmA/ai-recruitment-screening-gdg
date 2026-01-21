@@ -1,6 +1,6 @@
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useEffect } from 'react';
 import { Header } from '@/components/layout/header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,9 @@ import {
   FileText,
   CheckCircle2,
   Loader2,
+  AlertCircle,
+  XCircle,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useRef, useMemo } from 'react';
@@ -49,6 +52,13 @@ import { format } from 'date-fns';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-client';
 import { api } from '@/lib/api';
+
+interface FileUploadStatus {
+  file: File;
+  status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
+  progress: number;
+  error?: string;
+}
 
 // Helper function to get initials
 function getInitials(name: string): string {
@@ -111,7 +121,7 @@ export default function JobDetailPage({
   const [statusFilter, setStatusFilter] = useState('all');
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [fileStatuses, setFileStatuses] = useState<FileUploadStatus[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -126,6 +136,22 @@ export default function JobDetailPage({
 
   // Mutations
   const uploadCVMutation = useUploadCV();
+
+  const processingCandidates = useMemo(() => {
+    if (!candidatesData?.data) return [];
+    return candidatesData.data.filter((c) => c.matchScore === 0);
+  }, [candidatesData]);
+
+  useEffect(() => {
+    if (processingCandidates.length > 0) {
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.jobs.candidates(id),
+        });
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [processingCandidates.length, id, queryClient]);
 
   // Filter candidates based on search and status
   const filteredCandidates = useMemo(() => {
@@ -151,10 +177,17 @@ export default function JobDetailPage({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      const validFiles = files.filter(
-        (file) => file.type === 'application/pdf' && file.size <= MAX_FILE_SIZE,
-      );
-      setUploadedFiles((prev) => [...prev, ...validFiles]);
+      const newStatuses: FileUploadStatus[] = files
+        .filter(
+          (file) =>
+            file.type === 'application/pdf' && file.size <= MAX_FILE_SIZE,
+        )
+        .map((file) => ({
+          file,
+          status: 'pending' as const,
+          progress: 0,
+        }));
+      setFileStatuses((prev) => [...prev, ...newStatuses]);
     }
   };
 
@@ -173,20 +206,47 @@ export default function JobDetailPage({
     const files = Array.from(e.dataTransfer.files).filter(
       (f) => f.type === 'application/pdf' && f.size <= MAX_FILE_SIZE,
     );
-    setUploadedFiles((prev) => [...prev, ...files]);
+    const newStatuses: FileUploadStatus[] = files.map((file) => ({
+      file,
+      status: 'pending' as const,
+      progress: 0,
+    }));
+    setFileStatuses((prev) => [...prev, ...newStatuses]);
+  };
+
+  const removeFile = (index: number) => {
+    setFileStatuses((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const updateFileStatus = (
+    index: number,
+    updates: Partial<FileUploadStatus>,
+  ) => {
+    setFileStatuses((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, ...updates } : item)),
+    );
   };
 
   const handleProcessFiles = async () => {
-    if (uploadedFiles.length === 0 || !job) return;
+    if (fileStatuses.length === 0 || !job) return;
 
     setIsProcessing(true);
+    let successCount = 0;
 
     try {
-      // Process each CV file
-      for (const file of uploadedFiles) {
+      for (let i = 0; i < fileStatuses.length; i++) {
+        const fileStatus = fileStatuses[i];
+        if (fileStatus.status === 'complete' || fileStatus.status === 'error') {
+          continue;
+        }
+
+        updateFileStatus(i, { status: 'uploading', progress: 10 });
+
         try {
+          updateFileStatus(i, { progress: 20 });
+
           // Create candidate profile first
-          const candidateName = file.name
+          const candidateName = fileStatus.file.name
             .replace('.pdf', '')
             .replace(/[_-]/g, ' ');
           const candidate = await api.candidates.create({
@@ -194,18 +254,34 @@ export default function JobDetailPage({
             email: `pending-${Date.now()}@processing.local`,
           });
 
+          updateFileStatus(i, { progress: 40 });
+
           // Create application with candidate profile ID
           const application = await api.applications.create(job.id, {
             candidateProfileId: candidate.id,
           });
 
+          updateFileStatus(i, { progress: 60 });
+
           // Upload CV
           await uploadCVMutation.mutateAsync({
             applicationId: application.id,
-            file: file,
+            file: fileStatus.file,
           });
+
+          updateFileStatus(i, { progress: 80, status: 'processing' });
+
+          setTimeout(() => {
+            updateFileStatus(i, { progress: 100, status: 'complete' });
+          }, 1500);
+
+          successCount++;
         } catch (error) {
-          console.error(`Failed to process CV: ${file.name}`, error);
+          console.error(`Failed to process CV: ${fileStatus.file.name}`, error);
+          updateFileStatus(i, {
+            status: 'error',
+            error: 'Failed to upload. Please try again.',
+          });
         }
       }
 
@@ -214,9 +290,15 @@ export default function JobDetailPage({
         queryKey: queryKeys.jobs.candidates(id),
       });
 
-      // Close dialog and reset
-      setIsUploadDialogOpen(false);
-      setUploadedFiles([]);
+      setTimeout(() => {
+        const allDone = fileStatuses.every(
+          (f) => f.status === 'complete' || f.status === 'error',
+        );
+        if (allDone) {
+          setIsUploadDialogOpen(false);
+          setFileStatuses([]);
+        }
+      }, 3000);
     } catch (error) {
       console.error('Failed to process CVs:', error);
     } finally {
@@ -224,6 +306,7 @@ export default function JobDetailPage({
     }
   };
 
+  const pendingFiles = fileStatuses.filter((f) => f.status === 'pending');
   const isLoading = jobLoading || candidatesLoading;
 
   return (
@@ -271,7 +354,12 @@ export default function JobDetailPage({
                       {/* Upload Candidates Button & Dialog */}
                       <Dialog
                         open={isUploadDialogOpen}
-                        onOpenChange={setIsUploadDialogOpen}
+                        onOpenChange={(open) => {
+                          setIsUploadDialogOpen(open);
+                          if (!open) {
+                            setFileStatuses([]);
+                          }
+                        }}
                       >
                         <DialogTrigger asChild>
                           <Button className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white gap-2">
@@ -309,7 +397,7 @@ export default function JobDetailPage({
                                     Drag and drop PDF files here
                                   </p>
                                   <p className="text-sm text-zinc-500">
-                                    or click to browse from your computer
+                                    or click to browse (max 2MB per file)
                                   </p>
                                 </div>
                                 <input
@@ -325,27 +413,107 @@ export default function JobDetailPage({
                                   className="mt-2 border-zinc-700 text-zinc-300"
                                   size="sm"
                                   onClick={() => fileInputRef.current?.click()}
+                                  disabled={isProcessing}
                                 >
                                   Browse Files
                                 </Button>
                               </div>
                             </div>
-                            {uploadedFiles.length > 0 && (
+
+                            {/* File List with Progress */}
+                            {fileStatuses.length > 0 && (
                               <div className="mt-4 space-y-2">
                                 <p className="text-sm text-zinc-400 mb-2">
-                                  Uploaded files:
+                                  Files ({fileStatuses.length}):
                                 </p>
-                                {uploadedFiles.map((file, index) => (
-                                  <div
-                                    key={index}
-                                    className="flex items-center gap-2 p-2 rounded-lg bg-zinc-800"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                                    <span className="text-sm text-zinc-300">
-                                      {file.name}
-                                    </span>
-                                  </div>
-                                ))}
+                                <div className="max-h-48 overflow-y-auto space-y-2">
+                                  {fileStatuses.map((fileStatus, index) => (
+                                    <div
+                                      key={`${fileStatus.file.name}-${index}`}
+                                      className="p-3 rounded-lg bg-zinc-800 space-y-2"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        {fileStatus.status === 'pending' && (
+                                          <FileText className="w-4 h-4 text-zinc-400" />
+                                        )}
+                                        {fileStatus.status === 'uploading' && (
+                                          <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+                                        )}
+                                        {fileStatus.status === 'processing' && (
+                                          <Sparkles className="w-4 h-4 text-yellow-400 animate-pulse" />
+                                        )}
+                                        {fileStatus.status === 'complete' && (
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                        )}
+                                        {fileStatus.status === 'error' && (
+                                          <AlertCircle className="w-4 h-4 text-red-400" />
+                                        )}
+
+                                        <span className="text-sm text-zinc-300 flex-1 truncate">
+                                          {fileStatus.file.name}
+                                        </span>
+
+                                        <span className="text-xs text-zinc-500">
+                                          {(
+                                            fileStatus.file.size / 1024
+                                          ).toFixed(0)}{' '}
+                                          KB
+                                        </span>
+
+                                        {/* Remove Button */}
+                                        {fileStatus.status === 'pending' && (
+                                          <button
+                                            onClick={() => removeFile(index)}
+                                            className="p-1 hover:bg-zinc-700 rounded"
+                                          >
+                                            <XCircle className="w-4 h-4 text-zinc-500 hover:text-red-400" />
+                                          </button>
+                                        )}
+                                      </div>
+
+                                      {/* Progress Bar */}
+                                      {(fileStatus.status === 'uploading' ||
+                                        fileStatus.status === 'processing') && (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center justify-between text-xs">
+                                            <span className="text-zinc-500">
+                                              {fileStatus.status === 'uploading'
+                                                ? 'Uploading...'
+                                                : 'AI Processing...'}
+                                            </span>
+                                            <span className="text-violet-400 font-medium">
+                                              {fileStatus.progress}%
+                                            </span>
+                                          </div>
+                                          <div className="w-full h-1.5 rounded-full bg-zinc-700 overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full transition-all duration-300 ${
+                                                fileStatus.status ===
+                                                'processing'
+                                                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
+                                                  : 'bg-gradient-to-r from-violet-500 to-indigo-600'
+                                              }`}
+                                              style={{
+                                                width: `${fileStatus.progress}%`,
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {fileStatus.status === 'complete' && (
+                                        <p className="text-xs text-emerald-400">
+                                          ✓ CV uploaded & queued for AI analysis
+                                        </p>
+                                      )}
+                                      {fileStatus.status === 'error' && (
+                                        <p className="text-xs text-red-400">
+                                          {fileStatus.error}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -354,7 +522,7 @@ export default function JobDetailPage({
                               variant="ghost"
                               onClick={() => {
                                 setIsUploadDialogOpen(false);
-                                setUploadedFiles([]);
+                                setFileStatuses([]);
                               }}
                               className="text-zinc-400 hover:text-white"
                               disabled={isProcessing}
@@ -365,13 +533,20 @@ export default function JobDetailPage({
                               className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500"
                               onClick={handleProcessFiles}
                               disabled={
-                                uploadedFiles.length === 0 || isProcessing
+                                pendingFiles.length === 0 || isProcessing
                               }
                             >
-                              {isProcessing && (
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              {isProcessing ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Processing...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-4 h-4 mr-2" />
+                                  Process with AI ({pendingFiles.length})
+                                </>
                               )}
-                              Process with AI
                             </Button>
                           </DialogFooter>
                         </DialogContent>
@@ -402,6 +577,29 @@ export default function JobDetailPage({
                 {/* Candidates Section */}
                 <Card className="bg-zinc-900 border-zinc-800">
                   <CardHeader className="pb-4">
+                    {processingCandidates.length > 0 && (
+                      <div className="mb-4 p-3 rounded-lg bg-gradient-to-r from-violet-500/10 to-indigo-500/10 border border-violet-500/30">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <Sparkles className="w-5 h-5 text-violet-400" />
+                            <div className="absolute inset-0 animate-ping">
+                              <Sparkles className="w-5 h-5 text-violet-400 opacity-50" />
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-white">
+                              AI is analyzing {processingCandidates.length} CV
+                              {processingCandidates.length > 1 ? 's' : ''}...
+                            </p>
+                            <p className="text-xs text-zinc-400">
+                              Match scores will appear automatically when
+                              analysis is complete
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                       <CardTitle className="text-lg text-white">
                         Candidates ({candidatesData?.data?.length || 0})
@@ -512,19 +710,30 @@ export default function JobDetailPage({
                                   </div>
                                 </TableCell>
                                 <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-16 h-2 rounded-full bg-zinc-800 overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full ${getScoreColor(item.matchScore)}`}
-                                        style={{ width: `${item.matchScore}%` }}
-                                      />
+                                  {item.matchScore === 0 ? (
+                                    <div className="flex items-center gap-2">
+                                      <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />
+                                      <span className="text-sm text-yellow-400">
+                                        Analyzing...
+                                      </span>
                                     </div>
-                                    <span
-                                      className={`font-semibold ${getScoreTextColor(item.matchScore)}`}
-                                    >
-                                      {item.matchScore}%
-                                    </span>
-                                  </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-16 h-2 rounded-full bg-zinc-800 overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full ${getScoreColor(item.matchScore)}`}
+                                          style={{
+                                            width: `${item.matchScore}%`,
+                                          }}
+                                        />
+                                      </div>
+                                      <span
+                                        className={`font-semibold ${getScoreTextColor(item.matchScore)}`}
+                                      >
+                                        {item.matchScore}%
+                                      </span>
+                                    </div>
+                                  )}
                                 </TableCell>
                                 <TableCell>
                                   <Badge
