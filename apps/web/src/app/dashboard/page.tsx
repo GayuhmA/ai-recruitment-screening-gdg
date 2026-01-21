@@ -184,13 +184,13 @@ export default function DashboardPage() {
                     </CardContent>
                   </Card>
 
-                  {/* Hired This Month */}
+                  {/* Accepted This Month */}
                   <Card className="bg-zinc-900 border-zinc-800 hover:border-zinc-700 transition-all duration-200 group">
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between">
                         <div className="space-y-2">
                           <p className="text-sm font-medium text-zinc-400">
-                            Hired This Month
+                            Accepted This Month
                           </p>
                           <p className="text-3xl font-bold text-white">
                             {hiredThisMonth}

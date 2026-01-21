@@ -35,6 +35,8 @@ import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
 import { useCandidate } from '@/hooks/useCandidates';
 import { ApplicationStatus } from '@/types/api';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
 
 type CandidateStatus = 'New' | 'Accepted' | 'Rejected';
 
@@ -81,18 +83,55 @@ export default function CandidateDetailPage({
   const { id } = use(params);
   const router = useRouter();
 
-  const { data: candidate, isLoading, error } = useCandidate(id);
+  const { data: candidate, isLoading, error, refetch } = useCandidate(id);
 
   const primaryApplication = candidate?.applications?.[0];
-  const initialStatus = mapApplicationStatusToUI(primaryApplication?.status);
 
   const [status, setStatus] = useState<CandidateStatus>('New');
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     if (primaryApplication) {
       setStatus(mapApplicationStatusToUI(primaryApplication.status));
     }
   }, [primaryApplication]);
+
+  const mapUIStatusToAPI = (uiStatus: CandidateStatus): ApplicationStatus => {
+    switch (uiStatus) {
+      case 'Accepted':
+        return ApplicationStatus.HIRED;
+      case 'Rejected':
+        return ApplicationStatus.REJECTED;
+      default:
+        return ApplicationStatus.APPLIED;
+    }
+  };
+
+  // Handle status change
+  const handleStatusChange = async (newStatus: CandidateStatus) => {
+    if (!primaryApplication) {
+      toast.error('No application found for this candidate');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const apiStatus = mapUIStatusToAPI(newStatus);
+      await api.applications.update(primaryApplication.id, {
+        status: apiStatus,
+      });
+      setStatus(newStatus);
+      await refetch();
+      toast.success(
+        `Candidate ${newStatus === 'Accepted' ? 'accepted' : newStatus === 'Rejected' ? 'rejected' : 'status updated'}`,
+      );
+    } catch (error) {
+      console.error('Failed to update status:', error);
+      toast.error('Failed to update candidate status');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -258,8 +297,9 @@ export default function CandidateDetailPage({
                           <Select
                             value={status}
                             onValueChange={(value) =>
-                              setStatus(value as CandidateStatus)
+                              handleStatusChange(value as CandidateStatus)
                             }
+                            disabled={isUpdating}
                           >
                             <SelectTrigger
                               className={`w-32 h-8 text-xs border ${getStatusColor(
@@ -409,16 +449,26 @@ export default function CandidateDetailPage({
                     <div className="flex gap-3 pt-2">
                       <Button
                         className="flex-1 bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white"
-                        onClick={() => setStatus('Accepted')}
+                        onClick={() => handleStatusChange('Accepted')}
+                        disabled={isUpdating || status === 'Accepted'}
                       >
-                        Accept
+                        {isUpdating ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          'Accept'
+                        )}
                       </Button>
                       <Button
                         variant="outline"
                         className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                        onClick={() => setStatus('Rejected')}
+                        onClick={() => handleStatusChange('Rejected')}
+                        disabled={isUpdating || status === 'Rejected'}
                       >
-                        Reject
+                        {isUpdating ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          'Reject'
+                        )}
                       </Button>
                     </div>
                   </div>
