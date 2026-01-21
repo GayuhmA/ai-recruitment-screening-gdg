@@ -30,6 +30,7 @@ import {
   Calendar,
   ArrowUpRight,
   Loader2,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useMemo, useCallback, useEffect } from 'react';
@@ -52,8 +53,28 @@ export default function JobsPage() {
     title: '',
     department: '',
     description: '',
-    requiredSkills: '',
+    requiredSkills: [] as string[],
   });
+  const [newSkill, setNewSkill] = useState('');
+
+  // Skill handlers
+  const handleAddSkill = () => {
+    const trimmed = newSkill.trim();
+    if (trimmed && !formData.requiredSkills.includes(trimmed)) {
+      setFormData((prev) => ({
+        ...prev,
+        requiredSkills: [...prev.requiredSkills, trimmed],
+      }));
+      setNewSkill('');
+    }
+  };
+
+  const handleRemoveSkill = (skill: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      requiredSkills: prev.requiredSkills.filter((s) => s !== skill),
+    }));
+  };
 
   // Fetch jobs from API
   const { data: jobsData, isLoading } = useJobs();
@@ -104,19 +125,20 @@ export default function JobsPage() {
         title: formData.title,
         department: formData.department,
         description: formData.description,
-        requiredSkills: formData.requiredSkills
-          .split(',')
-          .map((skill) => skill.trim())
-          .filter(Boolean),
+        requiredSkills: formData.requiredSkills,
         status: JobStatus.OPEN,
-      });
+        requirements: {
+          requiredSkills: formData.requiredSkills,
+        },
+      } as any);
 
       setFormData({
         title: '',
         department: '',
         description: '',
-        requiredSkills: '',
+        requiredSkills: [],
       });
+      setNewSkill('');
       setIsCreateDialogOpen(false);
     } catch (err) {
       console.error('Failed to create job:', err);
@@ -283,20 +305,50 @@ export default function JobsPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-zinc-300">
-                        Required Skills (comma-separated)
-                      </Label>
-                      <Input
-                        placeholder="e.g., React, TypeScript, Node.js"
-                        value={formData.requiredSkills}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            requiredSkills: e.target.value,
-                          })
-                        }
-                        className="bg-zinc-800 border-zinc-700 text-white"
-                      />
+                      <Label className="text-zinc-300">Required Skills</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={newSkill}
+                          onChange={(e) => setNewSkill(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddSkill();
+                            }
+                          }}
+                          placeholder="Add a skill..."
+                          className="flex-1 bg-zinc-800 border-zinc-700 text-white placeholder:text-zinc-500"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={handleAddSkill}
+                          className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      {formData.requiredSkills.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {formData.requiredSkills.map((skill) => (
+                            <Badge
+                              key={skill}
+                              variant="secondary"
+                              className="bg-zinc-800 text-zinc-300 gap-1 pr-1"
+                            >
+                              {skill}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSkill(skill)}
+                                className="ml-1 p-0.5 rounded hover:bg-zinc-700"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <DialogFooter>
@@ -351,7 +403,7 @@ export default function JobsPage() {
                   filteredJobs.map((job) => (
                     <Link key={job.id} href={`/jobs/${job.id}`}>
                       <Card className="bg-zinc-900 border-zinc-800 hover:border-violet-500/50 transition-all duration-200 cursor-pointer group h-full">
-                        <CardContent className="p-5">
+                        <CardContent className="px-5 py-2">
                           <div className="flex items-start justify-between mb-4">
                             <Badge
                               variant="secondary"
