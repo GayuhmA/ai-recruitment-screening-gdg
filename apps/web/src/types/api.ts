@@ -14,38 +14,38 @@ export interface ApiError {
 
 // ===== Enums =====
 export enum CvStatus {
-  UPLOADED = "UPLOADED",
-  TEXT_EXTRACTED = "TEXT_EXTRACTED",
-  AI_DONE = "AI_DONE",
-  FAILED = "FAILED",
+  UPLOADED = 'UPLOADED',
+  TEXT_EXTRACTED = 'TEXT_EXTRACTED',
+  AI_DONE = 'AI_DONE',
+  FAILED = 'FAILED',
 }
 
 export enum CvFailReason {
-  S3_UPLOAD_FAILED = "S3_UPLOAD_FAILED",
-  PDF_PARSE_FAILED = "PDF_PARSE_FAILED",
-  PDF_TEXT_EMPTY = "PDF_TEXT_EMPTY",
-  AI_QUOTA_EXCEEDED = "AI_QUOTA_EXCEEDED",
-  AI_RATE_LIMITED = "AI_RATE_LIMITED",
-  AI_AUTH_FAILED = "AI_AUTH_FAILED",
-  AI_TIMEOUT = "AI_TIMEOUT",
-  AI_FAILED = "AI_FAILED",
-  DB_FAILED = "DB_FAILED",
-  UNKNOWN = "UNKNOWN",
+  S3_UPLOAD_FAILED = 'S3_UPLOAD_FAILED',
+  PDF_PARSE_FAILED = 'PDF_PARSE_FAILED',
+  PDF_TEXT_EMPTY = 'PDF_TEXT_EMPTY',
+  AI_QUOTA_EXCEEDED = 'AI_QUOTA_EXCEEDED',
+  AI_RATE_LIMITED = 'AI_RATE_LIMITED',
+  AI_AUTH_FAILED = 'AI_AUTH_FAILED',
+  AI_TIMEOUT = 'AI_TIMEOUT',
+  AI_FAILED = 'AI_FAILED',
+  DB_FAILED = 'DB_FAILED',
+  UNKNOWN = 'UNKNOWN',
 }
 
 export enum ApplicationStatus {
-  APPLIED = "APPLIED",
-  IN_REVIEW = "IN_REVIEW",
-  SHORTLISTED = "SHORTLISTED",
-  INTERVIEW = "INTERVIEW",
-  OFFERED = "OFFERED",
-  HIRED = "HIRED",
-  REJECTED = "REJECTED",
+  APPLIED = 'APPLIED',
+  IN_REVIEW = 'IN_REVIEW',
+  SHORTLISTED = 'SHORTLISTED',
+  INTERVIEW = 'INTERVIEW',
+  OFFERED = 'OFFERED',
+  HIRED = 'HIRED',
+  REJECTED = 'REJECTED',
 }
 
 export enum AiOutputType {
-  SUMMARY = "SUMMARY",
-  SKILLS = "SKILLS",
+  SUMMARY = 'SUMMARY',
+  SKILLS = 'SKILLS',
 }
 
 // ===== Entity Types =====
@@ -59,6 +59,7 @@ export interface User {
   id: string;
   organizationId: string;
   email: string;
+  name?: string;
   role: string;
   createdAt: string;
 }
@@ -86,8 +87,8 @@ export interface Job {
 }
 
 export enum JobStatus {
-  OPEN = "OPEN",
-  CLOSED = "CLOSED",
+  OPEN = 'OPEN',
+  CLOSED = 'CLOSED',
 }
 
 export interface CandidateProfile {

@@ -31,16 +31,10 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-zinc-950`}>
         <ReactQueryProvider>
           <SessionProvider>
-            <AuthProvider>
-              <div className="flex h-screen overflow-hidden">
-                <main className="flex-1 overflow-auto">
-                  {children}
-                </main>
-              </div>
-            </AuthProvider>
+            <AuthProvider>{children}</AuthProvider>
           </SessionProvider>
         </ReactQueryProvider>
-        <Toaster 
+        <Toaster
           position="top-right"
           expand={false}
           richColors
