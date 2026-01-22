@@ -367,9 +367,9 @@ export default function CandidateDetailPage({
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {matchedSkills.length > 0 ? (
-                          matchedSkills.map((skill) => (
+                          matchedSkills.map((skill, idx) => (
                             <Badge
-                              key={skill}
+                              key={`${skill}-${idx}`}
                               variant="secondary"
                               className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                             >
