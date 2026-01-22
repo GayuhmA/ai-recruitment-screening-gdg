@@ -5,8 +5,7 @@ import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, 
   Briefcase, 
-  Users, 
-  Settings,
+  Users,
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -19,10 +18,6 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Jobs', href: '/jobs', icon: Briefcase },
   { name: 'Candidates', href: '/candidates', icon: Users },
-];
-
-const bottomNavigation = [
-  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function Sidebar() {
@@ -89,38 +84,6 @@ export function Sidebar() {
 
         {/* Bottom Navigation */}
         <div className="px-3 py-4 space-y-1">
-          {bottomNavigation.map((item) => {
-            const isActive = pathname === item.href;
-            const NavLink = (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-zinc-800 text-white'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
-                )}
-              >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                {!collapsed && <span>{item.name}</span>}
-              </Link>
-            );
-
-            if (collapsed) {
-              return (
-                <Tooltip key={item.name}>
-                  <TooltipTrigger asChild>{NavLink}</TooltipTrigger>
-                  <TooltipContent side="right" className="bg-zinc-800 text-white border-zinc-700">
-                    {item.name}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            }
-
-            return NavLink;
-          })}
-
           {/* Collapse Button */}
           <Button
             variant="ghost"
