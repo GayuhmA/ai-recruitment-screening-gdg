@@ -134,6 +134,7 @@ export default function JobDetailPage({
   const { id } = use(params);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'score' | 'date'>('date');
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [fileStatuses, setFileStatuses] = useState<FileUploadStatus[]>([]);
@@ -188,7 +189,7 @@ export default function JobDetailPage({
   const filteredCandidates = useMemo(() => {
     if (!candidatesData?.data) return [];
 
-    return candidatesData.data.filter((candidate) => {
+    let filtered = candidatesData.data.filter((candidate) => {
       const matchesSearch =
         searchQuery === '' ||
         candidate.candidate.name
@@ -203,7 +204,20 @@ export default function JobDetailPage({
 
       return matchesSearch && matchesStatus;
     });
-  }, [candidatesData, searchQuery, statusFilter]);
+
+    // Sort by score or date
+    if (sortBy === 'score') {
+      filtered.sort((a, b) => b.matchScore - a.matchScore);
+    } else {
+      filtered.sort(
+        (a, b) =>
+          new Date(b.application.createdAt).getTime() -
+          new Date(a.application.createdAt).getTime(),
+      );
+    }
+
+    return filtered;
+  }, [candidatesData, searchQuery, statusFilter, sortBy]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -1017,9 +1031,12 @@ export default function JobDetailPage({
                           variant="outline"
                           size="sm"
                           className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 gap-2"
+                          onClick={() =>
+                            setSortBy(sortBy === 'score' ? 'date' : 'score')
+                          }
                         >
                           <ArrowUpDown className="w-4 h-4" />
-                          Sort by Score
+                          Sort by {sortBy === 'score' ? 'Score' : 'Date'}
                         </Button>
                       </div>
                     </div>

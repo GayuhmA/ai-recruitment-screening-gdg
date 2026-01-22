@@ -18,14 +18,17 @@ import { useState, useMemo } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { useCandidates } from "@/hooks/useCandidates";
 import { ApplicationStatus } from "@/types/api";
+import { useJobs } from "@/hooks/useJobs";
 
 export default function CandidatesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"score" | "date">("score");
+  const [jobFilter, setJobFilter] = useState('all');
 
   // Fetch candidates
   const { data: candidatesData, isLoading, error } = useCandidates();
+  const { data: jobsData } = useJobs();
 
   // Filter and sort candidates with optimized search
   const filteredCandidates = useMemo(() => {
@@ -42,6 +45,8 @@ export default function CandidatesPage() {
         candidate.skills?.some((skill) => skill.toLowerCase().includes(query));
 
       const primaryStatus = candidate.applications?.[0]?.status;
+      const primaryJobId = candidate.applications?.[0]?.job?.id;
+
       let matchesStatus = statusFilter === 'all';
       if (statusFilter === ApplicationStatus.APPLIED) {
         matchesStatus =
@@ -55,7 +60,9 @@ export default function CandidatesPage() {
         matchesStatus = primaryStatus === ApplicationStatus.REJECTED;
       }
 
-      return matchesSearch && matchesStatus;
+      const matchesJob = jobFilter === 'all' || primaryJobId === jobFilter;
+
+      return matchesSearch && matchesStatus && matchesJob;
     });
 
     // Sort by score (using match score from first application) or date
@@ -73,7 +80,7 @@ export default function CandidatesPage() {
     }
 
     return filtered;
-  }, [candidatesData, searchQuery, statusFilter, sortBy]);
+  }, [candidatesData, searchQuery, statusFilter, jobFilter, sortBy]);
 
   const getInitials = (name: string | undefined | null) => {
     if (!name) return "NA";
@@ -193,6 +200,28 @@ export default function CandidatesPage() {
                       >
                         Rejected
                       </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={jobFilter} onValueChange={setJobFilter}>
+                    <SelectTrigger className="w-44 bg-zinc-900 border-zinc-800 text-white">
+                      <SelectValue placeholder="Job" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-900 border-zinc-800">
+                      <SelectItem
+                        value="all"
+                        className="text-white focus:bg-zinc-800"
+                      >
+                        All Jobs
+                      </SelectItem>
+                      {jobsData?.data?.map((job) => (
+                        <SelectItem
+                          key={job.id}
+                          value={job.id}
+                          className="text-white focus:bg-zinc-800"
+                        >
+                          {job.title}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Button
