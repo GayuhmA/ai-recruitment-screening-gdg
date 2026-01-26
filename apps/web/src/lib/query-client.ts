@@ -80,4 +80,10 @@ export const queryKeys = {
     status: (id: string) => [...queryKeys.cvs.detail(id), 'status'] as const,
     aiAnalysis: (id: string) => [...queryKeys.cvs.detail(id), 'ai-analysis'] as const,
   },
+  
+  // Users
+  users: {
+    all: ['users'] as const,
+    me: () => [...queryKeys.users.all, 'me'] as const,
+  },
 } as const;

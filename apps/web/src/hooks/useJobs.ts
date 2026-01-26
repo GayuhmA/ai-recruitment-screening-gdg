@@ -127,9 +127,18 @@ export function useDeleteJob() {
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs.lists() });
     },
     onError: (error: any) => {
-      toast.error('Failed to delete job', {
-        description: error?.message || 'Please try again later',
-      });
+      // Check if it's a 409 Conflict (job has applications)
+      if (error?.status === 409) {
+        const appCount = error?.applicationCount || 'existing';
+        toast.error('Cannot delete job', {
+          description: error?.detail || `This job has ${appCount} application(s). Please close the job instead.`,
+          duration: 5000, // Longer duration for important message
+        });
+      } else {
+        toast.error('Failed to delete job', {
+          description: error?.message || 'Please try again later',
+        });
+      }
     },
   });
 }

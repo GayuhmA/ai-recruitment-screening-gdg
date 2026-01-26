@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
 
 const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
@@ -47,5 +48,25 @@ export async function getObjectBuffer(key: string): Promise<Buffer> {
         return Buffer.concat(chunks);
     } catch (err) {
         throw new Error(`S3 download failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+
+/**
+ * Generate a presigned URL for downloading a CV from S3
+ * @param key S3 object key
+ * @param expiresIn URL expiration in seconds (default: 1 hour)
+ * @returns Presigned download URL
+ */
+export async function getPresignedDownloadUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    try {
+        const command = new GetObjectCommand({
+            Bucket: process.env.S3_BUCKET!,
+            Key: key,
+        });
+        
+        const url = await getSignedUrl(s3, command, { expiresIn });
+        return url;
+    } catch (err) {
+        throw new Error(`Failed to generate presigned URL: ${err instanceof Error ? err.message : String(err)}`);
     }
 }

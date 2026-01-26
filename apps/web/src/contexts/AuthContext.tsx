@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { api, tokenManager } from '@/lib/api';
 import type { User, LoginRequest, RegisterRequest } from '@/types/api';
 
@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
-  const login = async (data: LoginRequest) => {
+  const login = useCallback(async (data: LoginRequest) => {
     setIsLoading(true);
     try {
       const response = await api.auth.login(data);
@@ -51,9 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const register = async (data: RegisterRequest) => {
+  const register = useCallback(async (data: RegisterRequest) => {
     setIsLoading(true);
     try {
       const response = await api.auth.register(data);
@@ -63,17 +63,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     api.auth.logout();
-  };
+  }, []);
 
-  const refreshUser = () => {
+  const refreshUser = useCallback(() => {
     const storedUser = tokenManager.getUser();
     setUser(storedUser);
-  };
+  }, []);
 
   const value: AuthContextType = {
     user,

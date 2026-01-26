@@ -13,6 +13,7 @@ import type {
   AuthResponse,
   LoginRequest,
   RegisterRequest,
+  User,
   Job,
   JobListResponse,
   CreateJobRequest,
@@ -91,10 +92,13 @@ class HttpClient {
     this.baseURL = baseURL;
   }
 
-  private getHeaders(includeAuth: boolean = true): HeadersInit {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
+  private getHeaders(includeAuth: boolean = true, hasBody: boolean = true): HeadersInit {
+    const headers: Record<string, string> = {};
+
+    // Only set Content-Type if request has body
+    if (hasBody) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (includeAuth) {
       const token = tokenManager.getToken();
@@ -116,9 +120,12 @@ class HttpClient {
 
       if (isJson) {
         try {
-          const errorData: ApiError = await response.json();
-          errorMessage = errorData.message || errorMessage;
-          errorDetail = errorData.error || '';
+          const text = await response.text();
+          if (text) {
+            const errorData: ApiError = JSON.parse(text);
+            errorMessage = errorData.message || errorMessage;
+            errorDetail = errorData.error || '';
+          }
         } catch {
           // If JSON parsing fails, use status text
           errorMessage = response.statusText;
@@ -138,12 +145,23 @@ class HttpClient {
       throw new ApiClientError(response.status, errorMessage, errorDetail);
     }
 
-    // Handle empty responses (e.g., 204 No Content)
-    if (response.status === 204 || !isJson) {
+    // Handle empty responses (e.g., 204 No Content or empty body)
+    if (response.status === 204) {
       return {} as T;
     }
 
-    return response.json();
+    // Check if response has content before parsing JSON
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return {} as T;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      console.error('Failed to parse JSON response:', text);
+      return {} as T;
+    }
   }
 
   async get<T>(
@@ -164,7 +182,7 @@ class HttpClient {
 
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, false),
     });
 
     return this.handleResponse<T>(response);
@@ -177,8 +195,8 @@ class HttpClient {
   ): Promise<T> {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'POST',
-      headers: this.getHeaders(includeAuth),
-      body: JSON.stringify(body),
+      headers: this.getHeaders(includeAuth, body !== undefined),
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
     return this.handleResponse<T>(response);
@@ -191,8 +209,8 @@ class HttpClient {
   ): Promise<T> {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'PATCH',
-      headers: this.getHeaders(includeAuth),
-      body: JSON.stringify(body),
+      headers: this.getHeaders(includeAuth, body !== undefined),
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
 
     return this.handleResponse<T>(response);
@@ -204,7 +222,7 @@ class HttpClient {
   ): Promise<T> {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: 'DELETE',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, false),
     });
 
     return this.handleResponse<T>(response);
@@ -338,6 +356,15 @@ export const healthAPI = {
 };
 
 /**
+ * Users API
+ */
+export const usersAPI = {
+  async getCurrentUser(): Promise<User> {
+    return httpClient.get('/users/me');
+  },
+};
+
+/**
  * Jobs API
  */
 export const jobsAPI = {
@@ -451,6 +478,26 @@ export const cvsAPI = {
   async delete(cvId: string): Promise<{ message: string }> {
     return httpClient.delete(`/cvs/${cvId}`);
   },
+
+  async getPreviewUrl(cvId: string): Promise<{ url: string; expiresIn: number }> {
+    return httpClient.get(`/cvs/${cvId}/preview-url`);
+  },
+
+  async getDownloadUrl(cvId: string): Promise<{ url: string; expiresIn: number }> {
+    return httpClient.get(`/cvs/${cvId}/download-url`);
+  },
+
+  async download(cvId: string): Promise<void> {
+    try {
+      const { url } = await this.getDownloadUrl(cvId);
+      
+      // Simply navigate to the signed URL - browser will handle download
+      window.location.href = url;
+    } catch (error) {
+      console.error('Failed to download CV:', error);
+      throw error;
+    }
+  },
 };
 
 /**
@@ -459,6 +506,7 @@ export const cvsAPI = {
 export const api = {
   auth: authAPI,
   health: healthAPI,
+  users: usersAPI,
   jobs: jobsAPI,
   candidates: candidatesAPI,
   applications: applicationsAPI,

@@ -6,7 +6,9 @@ import {
   LayoutDashboard, 
   Briefcase, 
   Users,
+  FileText,
   ChevronLeft,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -84,6 +86,38 @@ export function Sidebar() {
 
         {/* Bottom Navigation */}
         <div className="px-3 py-4 space-y-1">
+          {/* Settings Link */}
+          {(() => {
+            const isActive = pathname === '/settings' || pathname.startsWith('/settings/');
+            const SettingsLink = (
+              <Link
+                href="/settings"
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+                  isActive
+                    ? 'bg-zinc-800 text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
+                )}
+              >
+                <Settings className="w-5 h-5 flex-shrink-0" />
+                {!collapsed && <span>Settings</span>}
+              </Link>
+            );
+
+            if (collapsed) {
+              return (
+                <Tooltip>
+                  <TooltipTrigger asChild>{SettingsLink}</TooltipTrigger>
+                  <TooltipContent side="right" className="bg-zinc-800 text-white border-zinc-700">
+                    Settings
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
+
+            return SettingsLink;
+          })()}
+
           {/* Collapse Button */}
           <Button
             variant="ghost"

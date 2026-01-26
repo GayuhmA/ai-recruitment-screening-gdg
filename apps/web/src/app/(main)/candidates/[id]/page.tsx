@@ -37,6 +37,7 @@ import { useCandidate } from '@/hooks/useCandidates';
 import { ApplicationStatus } from '@/types/api';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { useDownloadCV, useCVPreviewUrl, useCVDownloadUrl } from '@/hooks/useCVs';
 
 type CandidateStatus = 'New' | 'Accepted' | 'Rejected';
 
@@ -86,9 +87,45 @@ export default function CandidateDetailPage({
   const { data: candidate, isLoading, error, refetch } = useCandidate(id);
 
   const primaryApplication = candidate?.applications?.[0];
+  const cv = primaryApplication?.cv;
+  const cvId = cv?.id;
+  
+  // Extract CV statuses (from metadata)
+  const fileStatus = cv?.fileStatus; // 'READY' | 'FAILED'
+  const aiStatus = cv?.aiStatus;     // 'PENDING' | 'SUCCESS' | 'FAILED'
+  
+  const isCVReady = fileStatus === 'READY';
+  const isCVFileFailed = fileStatus === 'FAILED';
+  const isAIPending = aiStatus === 'PENDING';
+  const isAISuccess = aiStatus === 'SUCCESS';
+  const isAIFailed = aiStatus === 'FAILED';
 
   const [status, setStatus] = useState<CandidateStatus>('New');
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Poll metadata only when AI is processing
+  useEffect(() => {
+    if (isAIPending) {
+      const interval = setInterval(() => {
+        refetch(); // Poll candidate metadata
+      }, 5000); // Poll every 5 seconds
+      return () => clearInterval(interval);
+    }
+  }, [isAIPending, refetch]);
+
+  // CV preview URL - only fetch when file is ready
+  const { data: previewData } = useCVPreviewUrl(cvId, { 
+    enabled: !!cvId && isCVReady 
+  });
+  const previewUrl = previewData?.url;
+  
+  // CV download URL - fetch when ready
+  const { data: downloadData } = useCVDownloadUrl(cvId, { 
+    enabled: !!cvId && isCVReady
+  });
+  
+  // Download mutation
+  const downloadCV = useDownloadCV();
 
   useEffect(() => {
     if (primaryApplication) {
@@ -105,6 +142,18 @@ export default function CandidateDetailPage({
       default:
         return ApplicationStatus.APPLIED;
     }
+  };
+
+  // Handle CV download
+  const handleDownload = async () => {
+    if (!cvId || !downloadData?.url) {
+      toast.error('No CV available for download');
+      return;
+    }
+
+    // Simply navigate to signed URL - browser handles download
+    window.location.href = downloadData.url;
+    toast.success('CV download started');
   };
 
   // Handle status change
@@ -215,35 +264,73 @@ export default function CandidateDetailPage({
                 variant="outline"
                 size="sm"
                 className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 gap-2"
+                onClick={handleDownload}
+                disabled={!cvId || !isCVReady || !downloadData}
               >
                 <Download className="w-4 h-4" />
                 Download
               </Button>
             </div>
 
-            {/* PDF Viewer Placeholder */}
-            <div className="flex-1 flex items-center justify-center bg-zinc-950/50 p-8">
-              <div className="w-full max-w-2xl aspect-[8.5/11] bg-white rounded-lg shadow-2xl flex flex-col items-center justify-center p-8">
-                <FileText className="w-16 h-16 text-zinc-300 mb-4" />
-                <h3 className="text-lg font-medium text-zinc-900 mb-2">
-                  Resume Preview
-                </h3>
-                <p className="text-sm text-zinc-500 text-center max-w-xs">
-                  PDF viewer integration would display the candidate's
-                  resume here
-                </p>
-                <div className="mt-6 w-full max-w-sm space-y-3">
-                  <div className="h-4 bg-zinc-200 rounded animate-pulse" />
-                  <div className="h-4 bg-zinc-200 rounded animate-pulse w-4/5" />
-                  <div className="h-4 bg-zinc-200 rounded animate-pulse w-3/4" />
-                  <div className="h-8" />
-                  <div className="h-3 bg-zinc-100 rounded animate-pulse" />
-                  <div className="h-3 bg-zinc-100 rounded animate-pulse w-5/6" />
-                  <div className="h-3 bg-zinc-100 rounded animate-pulse w-4/5" />
-                  <div className="h-3 bg-zinc-100 rounded animate-pulse w-full" />
-                  <div className="h-3 bg-zinc-100 rounded animate-pulse w-3/4" />
+            {/* PDF Viewer */}
+            <div className="flex-1 bg-zinc-950/50 p-8">
+              {!cv ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <FileText className="w-16 h-16 text-zinc-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white mb-2">
+                      No CV Uploaded
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      This candidate hasn't uploaded a CV yet
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : isCVFileFailed ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-white mb-2">
+                      CV File Corrupted
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      The CV file failed to upload or is corrupted
+                    </p>
+                  </div>
+                </div>
+              ) : isCVReady && previewUrl ? (
+                <div className="relative h-full">
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-full rounded-lg border border-zinc-800 bg-white"
+                    title="CV Preview"
+                  />
+                  {isAIPending && (
+                    <div className="absolute top-4 right-4 inline-flex items-center gap-2 px-3 py-1.5 bg-violet-500/10 backdrop-blur-sm border border-violet-500/20 rounded-full text-xs text-violet-400">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      AI processing...
+                    </div>
+                  )}
+                  {isAIFailed && (
+                    <div className="absolute top-4 right-4 inline-flex items-center gap-2 px-3 py-1.5 bg-red-500/10 backdrop-blur-sm border border-red-500/20 rounded-full text-xs text-red-400">
+                      <AlertCircle className="w-3 h-3" />
+                      AI analysis failed
+                    </div>
+                  )}
+                </div>
+              ) : isCVReady && !previewUrl ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <Loader2 className="w-16 h-16 text-violet-500 mx-auto mb-4 animate-spin" />
+                    <h3 className="text-lg font-medium text-white mb-2">
+                      Loading Preview...
+                    </h3>
+                    <p className="text-sm text-zinc-400">
+                      Generating secure preview link
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 

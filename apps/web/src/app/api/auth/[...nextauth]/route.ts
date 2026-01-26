@@ -58,9 +58,9 @@ export const authOptions: NextAuthOptions = {
   ],
 
   callbacks: {
-    async jwt({ token, user, account }) {
-      // Initial sign in
-      if (user) {
+    async jwt({ token, user, account, profile }) {
+      // Initial sign in with credentials
+      if (user && account?.provider === "credentials") {
         token.id = user.id;
         token.role = user.role;
         token.organizationId = user.organizationId;
@@ -68,14 +68,34 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Google OAuth sign in
-      if (account?.provider === "google") {
-        // Here you would call your backend to create/get user with Google account
-        // For now, we'll just store the Google access token
-        token.googleAccessToken = account.access_token;
-        
-        // You should implement an endpoint in your backend like:
-        // POST /auth/google with { googleToken: account.id_token }
-        // That validates the Google token and returns your JWT
+      if (account?.provider === "google" && profile?.email) {
+        try {
+          // Call backend to create/get user with Google account
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/google`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: profile.email,
+              name: profile.name || profile.email,
+              googleId: profile.sub,
+            }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            // Store backend user data in token
+            token.id = data.user.id;
+            token.role = data.user.role;
+            token.organizationId = data.user.organizationId;
+            token.accessToken = data.accessToken;
+            token.email = data.user.email;
+            token.name = data.user.fullName;
+          } else {
+            console.error("Failed to authenticate with backend:", await response.text());
+          }
+        } catch (error) {
+          console.error("Error calling backend Google auth:", error);
+        }
       }
 
       return token;
@@ -90,6 +110,11 @@ export const authOptions: NextAuthOptions = {
         session.user.accessToken = token.accessToken as string;
       }
       return session;
+    },
+
+    async signIn({ user, account, profile }) {
+      // Allow all sign ins
+      return true;
     },
   },
 

@@ -30,13 +30,15 @@ export function useCV(cvId: string | undefined) {
  * Hook to fetch CV processing status
  * Useful for polling during CV processing
  */
-export function useCVStatus(cvId: string | undefined, enablePolling = false) {
+export function useCVStatus(
+  cvId: string | undefined, 
+  options?: { enabled?: boolean; refetchInterval?: number | false }
+) {
   return useQuery({
     queryKey: queryKeys.cvs.status(cvId!),
     queryFn: () => api.cvs.getStatus(cvId!),
-    enabled: !!cvId,
-    // Poll every 2 seconds when enabled (faster response time)
-    refetchInterval: enablePolling ? 2000 : false,
+    enabled: options?.enabled ?? !!cvId,
+    refetchInterval: options?.refetchInterval ?? false,
     staleTime: 0, // Always fetch fresh data
   });
 }
@@ -145,4 +147,58 @@ export function useMonitorCVProcessing(cvId: string | undefined) {
     isLoading,
     error,
   };
+}
+
+/**
+ * Hook to download a CV document
+ * Returns a mutation with loading state
+ */
+export function useDownloadCV() {
+  return useMutation({
+    mutationFn: (cvId: string) => api.cvs.download(cvId),
+    onSuccess: () => {
+      toast.success('CV download started', {
+        description: 'Your file will be downloaded shortly',
+      });
+    },
+    onError: (error: any) => {
+      toast.error('Failed to download CV', {
+        description: error?.message || 'Please try again later',
+      });
+    },
+  });
+}
+
+/**
+ * Hook to fetch presigned preview URL for CV (inline display)
+ * Only fetches when CV fileStatus is READY
+ */
+export function useCVPreviewUrl(
+  cvId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: ['cvs', 'preview-url', cvId],
+    queryFn: () => api.cvs.getPreviewUrl(cvId!),
+    enabled: options?.enabled ?? !!cvId,
+    staleTime: 4 * 60 * 1000, // 4 minutes (URL expires in 5 min)
+    cacheTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Hook to fetch presigned download URL for CV (attachment)
+ * Useful for download button
+ */
+export function useCVDownloadUrl(
+  cvId: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: ['cvs', 'download-url', cvId],
+    queryFn: () => api.cvs.getDownloadUrl(cvId!),
+    enabled: options?.enabled ?? !!cvId,
+    staleTime: 50 * 60 * 1000, // 50 minutes (URL expires in 1 hour)
+    cacheTime: 60 * 60 * 1000, // 1 hour
+  });
 }

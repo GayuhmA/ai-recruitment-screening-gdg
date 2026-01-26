@@ -60,7 +60,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useMemo } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
-import { useJob, useJobCandidates } from '@/hooks/useJobs';
+import { useJob, useJobCandidates, useUpdateJob, useDeleteJob } from '@/hooks/useJobs';
 import { useUploadCV } from '@/hooks/useCVs';
 import { JobStatus } from '@/types/api';
 import { format } from 'date-fns';
@@ -152,6 +152,7 @@ export default function JobDetailPage({
   const [isUpdating, setIsUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
     title: '',
+    department: '',
     description: '',
     status: JobStatus.OPEN as JobStatus,
     requiredSkills: [] as string[],
@@ -168,6 +169,8 @@ export default function JobDetailPage({
 
   // Mutations
   const uploadCVMutation = useUploadCV();
+  const updateJobMutation = useUpdateJob();
+  const deleteJobMutation = useDeleteJob();
 
   const processingCandidates = useMemo(() => {
     if (!candidatesData?.data) return [];
@@ -330,9 +333,12 @@ export default function JobDetailPage({
         }
       }
 
-      // Refresh candidates list
+      // Refresh candidates lists - both job-specific and global
       queryClient.invalidateQueries({
         queryKey: queryKeys.jobs.candidates(id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.candidates.all(),
       });
 
       setTimeout(() => {
@@ -359,7 +365,7 @@ export default function JobDetailPage({
     if (!job) return;
     setIsDeleting(true);
     try {
-      await api.jobs.delete(job.id);
+      await deleteJobMutation.mutateAsync(job.id);
       router.push('/jobs');
     } catch (error) {
       console.error('Failed to delete job:', error);
@@ -372,6 +378,7 @@ export default function JobDetailPage({
     if (!job) return;
     setEditForm({
       title: job.title,
+      department: job.department || '',
       description: job.description,
       status: job.status || JobStatus.OPEN,
       requiredSkills: job.requiredSkills || [],
@@ -385,15 +392,18 @@ export default function JobDetailPage({
     if (!job) return;
     setIsUpdating(true);
     try {
-      await api.jobs.update(job.id, {
-        title: editForm.title,
-        description: editForm.description,
-        status: editForm.status,
-        requirements: {
-          requiredSkills: editForm.requiredSkills,
+      await updateJobMutation.mutateAsync({
+        jobId: job.id,
+        data: {
+          title: editForm.title,
+          department: editForm.department,
+          description: editForm.description,
+          status: editForm.status,
+          requirements: {
+            requiredSkills: editForm.requiredSkills,
+          },
         },
-      } as any);
-      await queryClient.refetchQueries({ queryKey: queryKeys.jobs.detail(id) });
+      });
       setIsEditDialogOpen(false);
     } catch (error) {
       console.error('Failed to update job:', error);
@@ -1154,6 +1164,254 @@ export default function JobDetailPage({
             </Card>
           </>
         )}
+
+        {/* Edit Job Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="text-xl">Edit Job</DialogTitle>
+              <DialogDescription className="text-zinc-400">
+                Update job details and requirements.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label className="text-zinc-300">Job Title</Label>
+                <Input
+                  placeholder="e.g., Senior Frontend Engineer"
+                  value={editForm.title}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, title: e.target.value })
+                  }
+                  className="bg-zinc-800 border-zinc-700 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-zinc-300">Department</Label>
+                <Select
+                  value={editForm.department}
+                  onValueChange={(value) =>
+                    setEditForm({ ...editForm, department: value })
+                  }
+                >
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectItem
+                      value="engineering"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Engineering
+                    </SelectItem>
+                    <SelectItem
+                      value="design"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Design
+                    </SelectItem>
+                    <SelectItem
+                      value="analytics"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Analytics
+                    </SelectItem>
+                    <SelectItem
+                      value="marketing"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Marketing
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-zinc-300">Status</Label>
+                <Select
+                  value={editForm.status}
+                  onValueChange={(value) =>
+                    setEditForm({ ...editForm, status: value as JobStatus })
+                  }
+                >
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectItem
+                      value="OPEN"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Open
+                    </SelectItem>
+                    <SelectItem
+                      value="CLOSED"
+                      className="text-white focus:bg-zinc-700"
+                    >
+                      Closed
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-zinc-300">Description</Label>
+                <Textarea
+                  placeholder="Describe the role and responsibilities..."
+                  value={editForm.description}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, description: e.target.value })
+                  }
+                  className="bg-zinc-800 border-zinc-700 text-white min-h-[100px]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-zinc-300">Required Skills</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={newSkill}
+                    onChange={(e) => setNewSkill(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const trimmed = newSkill.trim();
+                        if (trimmed && !editForm.requiredSkills.includes(trimmed)) {
+                          setEditForm({
+                            ...editForm,
+                            requiredSkills: [...editForm.requiredSkills, trimmed],
+                          });
+                          setNewSkill('');
+                        }
+                      }
+                    }}
+                    placeholder="Add a skill..."
+                    className="flex-1 bg-zinc-800 border-zinc-700 text-white"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const trimmed = newSkill.trim();
+                      if (trimmed && !editForm.requiredSkills.includes(trimmed)) {
+                        setEditForm({
+                          ...editForm,
+                          requiredSkills: [...editForm.requiredSkills, trimmed],
+                        });
+                        setNewSkill('');
+                      }
+                    }}
+                    className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {editForm.requiredSkills.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {editForm.requiredSkills.map((skill) => (
+                      <Badge
+                        key={skill}
+                        variant="secondary"
+                        className="bg-zinc-800 text-zinc-300 gap-1 pr-1"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditForm({
+                              ...editForm,
+                              requiredSkills: editForm.requiredSkills.filter(
+                                (s) => s !== skill
+                              ),
+                            })
+                          }
+                          className="ml-1 p-0.5 rounded hover:bg-zinc-700"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setIsEditDialogOpen(false)}
+                className="text-zinc-400 hover:text-white"
+                disabled={isUpdating}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500"
+                onClick={handleUpdateJob}
+                disabled={
+                  isUpdating ||
+                  !editForm.title ||
+                  !editForm.description
+                }
+              >
+                {isUpdating && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Job Dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-xl flex items-center gap-2 text-red-400">
+                <AlertCircle className="w-5 h-5" />
+                Delete Job
+              </DialogTitle>
+              <DialogDescription className="text-zinc-400">
+                This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <p className="text-zinc-300 mb-2">
+                Are you sure you want to delete this job posting?
+              </p>
+              {job && (
+                <div className="p-3 rounded-lg bg-zinc-800 border border-zinc-700 mt-3">
+                  <p className="font-semibold text-white">{job.title}</p>
+                  <p className="text-sm text-zinc-400 capitalize">
+                    {job.department || 'General'}
+                  </p>
+                </div>
+              )}
+              <p className="text-sm text-zinc-500 mt-4">
+                All applications and candidate data associated with this job will remain,
+                but this job posting will be permanently removed.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="ghost"
+                onClick={() => setIsDeleteDialogOpen(false)}
+                className="text-zinc-400 hover:text-white"
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteJob}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isDeleting && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
+                Delete Job
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

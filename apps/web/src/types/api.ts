@@ -59,7 +59,7 @@ export interface User {
   id: string;
   organizationId: string;
   email: string;
-  name?: string;
+  fullName?: string;
   role: string;
   createdAt: string;
 }
@@ -172,7 +172,9 @@ export interface CreateJobRequest {
 
 export interface UpdateJobRequest {
   title?: string;
+  department?: string;
   description?: string;
+  status?: JobStatus;
   requirements?: {
     requiredSkills?: string[];
     experienceYears?: number;

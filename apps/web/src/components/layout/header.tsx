@@ -29,7 +29,7 @@ function getInitials(name: string): string {
 export function Header({ title, description }: HeaderProps) {
   const { user, logout } = useAuth();
 
-  const userName = user?.name || 'User';
+  const userName = user?.fullName || user?.email?.split('@')[0] || 'User';
   const userEmail = user?.email || '';
   const initials = getInitials(userName);
 

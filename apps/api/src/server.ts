@@ -6,7 +6,7 @@ import cors from "@fastify/cors";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "./lib/db.js";
-import { putCvObject } from "./lib/s3.js";
+import { putCvObject, getPresignedDownloadUrl } from "./lib/s3.js";
 import { cvQueue } from "./lib/bullmq.js";
 
 const app = Fastify({ logger: true });
@@ -155,6 +155,8 @@ app.post("/auth/login", {
         fullName: true,
         email: true,
         passwordHash: true,
+        role: true,
+        organizationId: true,
         createdAt: true,
       },
     });
@@ -198,6 +200,84 @@ app.post("/auth/login", {
   }
 });
 
+// Google OAuth login/register endpoint
+app.post("/auth/google", {
+  config: {
+    rateLimit: {
+      max: 10,
+      timeWindow: "1 minute",
+    },
+  },
+}, async (req, reply) => {
+  const body = z.object({
+    email: z.string().email("Invalid email address"),
+    name: z.string().min(1, "Name is required"),
+    googleId: z.string().optional(),
+  }).parse(req.body);
+
+  try {
+    // Find or create user with Google account
+    let user = await prisma.user.findUnique({
+      where: { email: body.email },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        organizationId: true,
+        createdAt: true,
+      },
+    });
+
+    // If user doesn't exist, create new user
+    if (!user) {
+      // Create default organization for new user
+      const organization = await prisma.organization.create({
+        data: {
+          name: `${body.name}'s Organization`,
+        },
+      });
+
+      // Create user with a random password (they'll use Google to login)
+      const randomPassword = Math.random().toString(36).slice(-12);
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      user = await prisma.user.create({
+        data: {
+          fullName: body.name,
+          email: body.email,
+          passwordHash: hashedPassword,
+          organizationId: organization.id,
+          role: "recruiter",
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          role: true,
+          organizationId: true,
+          createdAt: true,
+        },
+      });
+    }
+
+    // Generate token
+    const accessToken = generateToken(user.id);
+
+    return {
+      accessToken,
+      user,
+    };
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      statusCode: 500,
+      error: "Internal Server Error",
+      message: "Failed to authenticate with Google",
+    });
+  }
+});
+
 // NOTE: sementara hardcode 1 org untuk cepat (MVP lokal).
 // Nanti auth+org context baru kita rapihin.
 const ORG_ID = "local-org";
@@ -210,6 +290,46 @@ async function ensureOrg() {
   }
 }
 await ensureOrg();
+
+// ========== USER ENDPOINTS ==========
+
+app.get("/users/me", async (req, reply) => {
+  try {
+    // For now, return the first user or mock data for development
+    // In production, you would extract userId from Authorization header
+    const user = await prisma.user.findFirst({
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        organizationId: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      // Return mock user for development if no users exist
+      return {
+        id: "mock-user-id",
+        fullName: "Development User",
+        email: "dev@example.com",
+        role: "admin",
+        organizationId: ORG_ID,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    return user;
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      statusCode: 500,
+      error: "Internal Server Error",
+      message: "Failed to fetch user",
+    });
+  }
+});
 
 // ========== JOBS CRUD ==========
 
@@ -238,6 +358,8 @@ app.get("/jobs", async (req) => {
       title: true, 
       description: true,
       department: true,
+      location: true,
+      employmentType: true,
       status: true,
       requirements: true, 
       createdAt: true, 
@@ -302,6 +424,8 @@ app.get("/jobs/:jobId", async (req, reply) => {
       title: true, 
       description: true,
       department: true,
+      location: true,
+      employmentType: true,
       status: true,
       requirements: true, 
       createdAt: true, 
@@ -345,6 +469,10 @@ app.post("/jobs", {
     const body = z.object({
       title: z.string().min(2),
       description: z.string().min(10),
+      department: z.string().optional(),
+      location: z.string().optional(),
+      employmentType: z.string().optional(),
+      status: z.enum(["OPEN", "CLOSED", "DRAFT"]).optional(),
       requirements: z.object({
         requiredSkills: z.array(z.string()).optional(),
     }).optional(),
@@ -359,6 +487,10 @@ app.post("/jobs", {
       organizationId: ORG_ID,
       title: body.title,
       description: body.description,
+      department: body.department,
+      location: body.location,
+      employmentType: body.employmentType,
+      status: body.status || "OPEN",
       requirements,
     },
   });
@@ -378,6 +510,10 @@ app.patch("/jobs/:jobId", {
   const body = z.object({
     title: z.string().min(2).optional(),
     description: z.string().min(10).optional(),
+    department: z.string().optional(),
+    location: z.string().optional(),
+    employmentType: z.string().optional(),
+    status: z.enum(["OPEN", "CLOSED", "DRAFT"]).optional(),
     requirements: z.object({
       requiredSkills: z.array(z.string()).optional(),
     }).optional(),
@@ -387,8 +523,12 @@ app.patch("/jobs/:jobId", {
   if (!exists) return reply.code(404).send({ message: "Job not found" });
 
   const updateData: any = {};
-  if (body.title) updateData.title = body.title;
-  if (body.description) updateData.description = body.description;
+  if (body.title !== undefined) updateData.title = body.title;
+  if (body.description !== undefined) updateData.description = body.description;
+  if (body.department !== undefined) updateData.department = body.department;
+  if (body.location !== undefined) updateData.location = body.location;
+  if (body.employmentType !== undefined) updateData.employmentType = body.employmentType;
+  if (body.status !== undefined) updateData.status = body.status;
   if (body.requirements) {
     updateData.requirements = {
       requiredSkills: body.requirements.requiredSkills ?? [],
@@ -413,11 +553,32 @@ app.delete("/jobs/:jobId", {
   handler: async (req, reply) => {
     const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
   
-  const exists = await prisma.job.findUnique({ where: { id: params.jobId } });
+  const exists = await prisma.job.findUnique({ 
+    where: { id: params.jobId },
+    include: {
+      _count: {
+        select: {
+          applications: true
+        }
+      }
+    }
+  });
+  
   if (!exists) return reply.code(404).send({ message: "Job not found" });
 
+  // Prevent deletion if job has applications
+  if (exists._count.applications > 0) {
+    return reply.code(409).send({ 
+      message: "Cannot delete job with existing applications",
+      detail: `This job has ${exists._count.applications} application(s). Please close the job instead of deleting it.`,
+      applicationCount: exists._count.applications
+    });
+  }
+
   await prisma.job.delete({ where: { id: params.jobId } });
-  return { message: "Job deleted successfully" };
+  
+  // Return 204 No Content (HTTP standard for successful DELETE)
+  return reply.code(204).send();
   },
 });
 
@@ -508,67 +669,114 @@ app.get("/candidates", async (req) => {
 });
 
 app.get("/candidates/:candidateId", async (req, reply) => {
-  const params = z.object({ candidateId: z.string().uuid() }).parse(req.params);
-  
-  const candidate = await prisma.candidateProfile.findUnique({
-    where: { id: params.candidateId },
-    select: { 
-      id: true, 
-      fullName: true, 
-      email: true, 
-      phone: true, 
-      createdAt: true,
-    },
-  });
-  
-  if (!candidate) return reply.code(404).send({ message: "Candidate not found" });
-  
-  // Get all applications for this candidate
-  const applications = await prisma.application.findMany({
-    where: { candidateProfileId: params.candidateId },
-    include: {
-      job: {
-        select: { id: true, title: true, department: true, status: true }
+  try {
+    const params = z.object({ candidateId: z.string().uuid() }).parse(req.params);
+    
+    const candidate = await prisma.candidateProfile.findUnique({
+      where: { id: params.candidateId },
+      select: { 
+        id: true, 
+        fullName: true, 
+        email: true, 
+        phone: true, 
+        createdAt: true,
       },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  
-  // Get match scores for each application
-  const matches = await prisma.jobCandidateMatch.findMany({
-    where: { candidateProfileId: params.candidateId },
-    select: {
-      jobId: true,
-      score: true,
-      matchedSkills: true,
-      missingSkills: true,
-    },
-  });
-  
-  const matchMap = new Map(matches.map(m => [m.jobId, m]));
-  
-  const applicationsWithScores = applications.map(app => {
-    const match = matchMap.get(app.jobId);
+    });
+    
+    if (!candidate) {
+      return reply.code(404).send({ 
+        statusCode: 404,
+        error: "Not Found",
+        message: "Candidate not found" 
+      });
+    }
+    
+    // Get all applications for this candidate
+    const applications = await prisma.application.findMany({
+      where: { candidateProfileId: params.candidateId },
+      include: {
+        job: {
+          select: { id: true, title: true, department: true, status: true }
+        },
+        cvDocuments: {
+          select: { id: true, storageKey: true, status: true, mimeType: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1, // Get most recent CV
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    
+    // Get match scores for each application
+    const matches = await prisma.jobCandidateMatch.findMany({
+      where: { candidateProfileId: params.candidateId },
+      select: {
+        jobId: true,
+        score: true,
+        matchedSkills: true,
+        missingSkills: true,
+      },
+    });
+    
+    const matchMap = new Map(matches.map(m => [m.jobId, m]));
+    
+    const applicationsWithScores = applications.map(app => {
+      const match = matchMap.get(app.jobId);
+      const cv = app.cvDocuments?.[0]; // Get first (most recent) CV
+      
+      // Map CvStatus to fileStatus & aiStatus
+      let fileStatus: 'READY' | 'FAILED' = 'READY';
+      let aiStatus: 'PENDING' | 'SUCCESS' | 'FAILED' = 'PENDING';
+      
+      if (cv) {
+        // File is ready after upload (S3 upload success)
+        fileStatus = cv.status === 'FAILED' ? 'FAILED' : 'READY';
+        
+        // AI status based on processing stages
+        if (cv.status === 'FAILED') {
+          aiStatus = 'FAILED';
+        } else if (cv.status === 'AI_DONE') {
+          aiStatus = 'SUCCESS';
+        } else {
+          aiStatus = 'PENDING'; // UPLOADED or TEXT_EXTRACTED
+        }
+      }
+      
+      return {
+        id: app.id,
+        jobId: app.jobId,
+        cvId: cv?.id,
+        status: app.status,
+        createdAt: app.createdAt,
+        job: app.job,
+        cv: cv ? {
+          id: cv.id,
+          fileStatus,
+          aiStatus,
+          mimeType: cv.mimeType,
+        } : null,
+        matchScore: match?.score ?? 0,
+        matchedSkills: (match?.matchedSkills as string[]) ?? [],
+        missingSkills: (match?.missingSkills as string[]) ?? [],
+      };
+    });
+    
     return {
-      id: app.id,
-      jobId: app.jobId,
-      status: app.status,
-      createdAt: app.createdAt,
-      job: app.job,
-      matchScore: match?.score ?? 0,
-      matchedSkills: match?.matchedSkills ?? [],
-      missingSkills: match?.missingSkills ?? [],
+      id: candidate.id,
+      name: candidate.fullName,
+      email: candidate.email,
+      phone: candidate.phone,
+      createdAt: candidate.createdAt,
+      applications: applicationsWithScores,
     };
-  });
-  
-  return {
-    id: candidate.id,
-    name: candidate.fullName,
-    email: candidate.email,
-    phone: candidate.phone,
-    createdAt: candidate.createdAt,
-    applications: applicationsWithScores,
-  };
+  } catch (error) {
+    req.log.error(error);
+    return reply.code(500).send({
+      statusCode: 500,
+      error: "Internal Server Error",
+      message: error instanceof Error ? error.message : "Failed to fetch candidate details",
+    });
+  }
 });
 
 app.post("/candidates", {
@@ -847,6 +1055,77 @@ app.get("/cvs/:cvId/status", async (req) => {
     select: { id: true, status: true, errorMessage: true, failReason: true, updatedAt: true },
   });
   return cv ?? { message: "not found" };
+});
+
+// GET /cvs/:cvId/preview-url - Get presigned URL for PDF preview (inline)
+app.get("/cvs/:cvId/preview-url", async (req, reply) => {
+  const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
+  
+  const cv = await prisma.cvDocument.findUnique({
+    where: { id: params.cvId },
+    select: { id: true, storageKey: true, status: true },
+  });
+
+  if (!cv) {
+    return reply.code(404).send({ message: "CV not found" });
+  }
+
+  // Check fileStatus - file must be uploaded to S3
+  if (cv.status === "FAILED") {
+    return reply.code(409).send({ 
+      message: "CV file is corrupted or failed to upload"
+    });
+  }
+
+  try {
+    // Generate signed URL with inline disposition for preview
+    const url = await getPresignedDownloadUrl(cv.storageKey, 300); // 5 min expiry for preview
+    return { 
+      url,
+      expiresIn: 300
+    };
+  } catch (error) {
+    app.log.error(error, "Failed to generate presigned preview URL");
+    return reply.code(500).send({ 
+      message: "Failed to generate preview URL",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// GET /cvs/:cvId/download-url - Get presigned URL for PDF download (attachment)
+app.get("/cvs/:cvId/download-url", async (req, reply) => {
+  const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
+  
+  const cv = await prisma.cvDocument.findUnique({
+    where: { id: params.cvId },
+    select: { id: true, storageKey: true, status: true },
+  });
+
+  if (!cv) {
+    return reply.code(404).send({ message: "CV not found" });
+  }
+
+  if (cv.status === "FAILED") {
+    return reply.code(409).send({ 
+      message: "CV file is corrupted or failed to upload"
+    });
+  }
+
+  try {
+    // Generate signed URL with attachment disposition for download
+    const url = await getPresignedDownloadUrl(cv.storageKey, 3600); // 1 hour expiry
+    return { 
+      url,
+      expiresIn: 3600
+    };
+  } catch (error) {
+    app.log.error(error, "Failed to generate presigned download URL");
+    return reply.code(500).send({ 
+      message: "Failed to generate download URL",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 app.get("/cvs/:cvId/ai", async (req, reply) => {

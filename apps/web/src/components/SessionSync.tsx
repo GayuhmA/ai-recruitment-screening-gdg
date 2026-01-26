@@ -3,6 +3,7 @@
 import { useSession } from 'next-auth/react';
 import { useEffect } from 'react';
 import { tokenManager } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 /**
  * Session Sync Component
@@ -11,22 +12,35 @@ import { tokenManager } from '@/lib/api';
  */
 export function SessionSync() {
   const { data: session, status } = useSession();
+  const { refreshUser } = useAuth();
 
   useEffect(() => {
-    if (status === 'authenticated' && session?.user?.accessToken) {
+    if (status === 'authenticated' && session?.user) {
+      const user = session.user as any;
+      
       // Sync NextAuth session to our token manager
-      tokenManager.setToken(session.user.accessToken);
-      tokenManager.setUser({
-        id: session.user.id,
-        email: session.user.email,
-        role: session.user.role,
-        organizationId: session.user.organizationId,
-      });
+      if (user.accessToken) {
+        tokenManager.setToken(user.accessToken);
+        tokenManager.setUser({
+          id: user.id,
+          email: user.email,
+          fullName: user.name || user.email,
+          role: user.role || 'recruiter',
+          organizationId: user.organizationId,
+        });
+
+        // Refresh AuthContext to update the UI
+        refreshUser();
+        
+        console.log('✅ Session synced to localStorage');
+      }
     } else if (status === 'unauthenticated') {
       // Clear tokens when logged out
       tokenManager.removeToken();
+      console.log('🔒 Session cleared from localStorage');
     }
-  }, [session, status]);
+  }, [session, status, refreshUser]);
 
   return null; // This component doesn't render anything
 }
+
