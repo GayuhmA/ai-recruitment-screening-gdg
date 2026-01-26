@@ -121,18 +121,11 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Forgot Password Link */}
-              <div className="flex justify-end">
-                <Link href="#" className="text-sm text-violet-400 hover:text-violet-300 transition-colors">
-                  Forgot password?
-                </Link>
-              </div>
-
               {/* Submit Button */}
               <Button 
                 type="submit" 
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white gap-2"
+                className="w-full mt-8 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white gap-2"
               >
                 {isLoading ? (
                   <>
