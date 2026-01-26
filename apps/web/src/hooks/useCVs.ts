@@ -129,8 +129,10 @@ export function useDeleteCV() {
 export function useMonitorCVProcessing(cvId: string | undefined) {
   const { data, isLoading, error } = useCVStatus(
     cvId,
-    // Enable polling only if CV exists and is still processing
-    !!cvId
+        { 
+      enabled: !!cvId,
+      refetchInterval: 3000 // Poll every 3 seconds for real-time updates
+    }
   );
 
   const isProcessing = data?.status === 'UPLOADED' || data?.status === 'TEXT_EXTRACTED';
@@ -182,7 +184,7 @@ export function useCVPreviewUrl(
     queryFn: () => api.cvs.getPreviewUrl(cvId!),
     enabled: options?.enabled ?? !!cvId,
     staleTime: 4 * 60 * 1000, // 4 minutes (URL expires in 5 min)
-    cacheTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 5 * 60 * 1000, // 5 minutes
   });
 }
 
@@ -194,11 +196,11 @@ export function useCVDownloadUrl(
   cvId: string | undefined,
   options?: { enabled?: boolean }
 ) {
-  return useQuery({
+  return useQuery<{ url: string; expiresIn: number }>({
     queryKey: ['cvs', 'download-url', cvId],
     queryFn: () => api.cvs.getDownloadUrl(cvId!),
     enabled: options?.enabled ?? !!cvId,
     staleTime: 50 * 60 * 1000, // 50 minutes (URL expires in 1 hour)
-    cacheTime: 60 * 60 * 1000, // 1 hour
+    gcTime: 60 * 60 * 1000, // 1 hour
   });
 }
