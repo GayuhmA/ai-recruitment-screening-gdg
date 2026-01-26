@@ -338,7 +338,7 @@ export default function JobDetailPage({
         queryKey: queryKeys.jobs.candidates(id),
       });
       queryClient.invalidateQueries({
-        queryKey: queryKeys.candidates.all(),
+        queryKey: queryKeys.candidates.all,
       });
 
       setTimeout(() => {
