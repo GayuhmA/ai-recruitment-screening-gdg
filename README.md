@@ -2,6 +2,8 @@
 
 > **Intelligent CV processing and candidate matching system powered by AI**
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/GayuhmA/ai-recruitment-screening-gdg)
+
 A production-ready REST API built with Fastify, PostgreSQL, BullMQ, and Google Gemini AI for automated CV analysis and smart candidate-job matching.
 
 ## ✨ Features
