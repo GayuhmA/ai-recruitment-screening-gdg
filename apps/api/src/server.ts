@@ -1336,7 +1336,17 @@ app.get("/jobs/:jobId/candidates", async (req, reply) => {
   }
 });
 
-const port = Number(process.env.APP_PORT || 3001);
+// Railway injects PORT, not APP_PORT
+const port = Number(process.env.PORT || process.env.APP_PORT || 3001);
+
+// Log environment status for debugging Railway deployment
+console.log("🚀 Starting server with environment:", {
+  nodeEnv: process.env.NODE_ENV,
+  port: port,
+  hasDatabase: !!process.env.DATABASE_URL,
+  hasRedis: !!process.env.REDIS_URL,
+  s3Endpoint: process.env.S3_ENDPOINT,
+});
 
 // Global error handlers
 process.on('unhandledRejection', (reason, promise) => {

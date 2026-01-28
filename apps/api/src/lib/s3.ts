@@ -4,15 +4,30 @@ import { randomUUID } from "crypto";
 
 const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === "true";
 
-export const s3 = new S3Client({
-    region: process.env.S3_REGION!,
-    endpoint: process.env.S3_ENDPOINT!,
-    forcePathStyle,
-    credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY!,
-        secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || process.env.S3_SECRET_KEY!,
-    },
-});
+// Lazy initialization to avoid crash on boot if S3 config is invalid
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+    if (!s3Client) {
+        try {
+            s3Client = new S3Client({
+                region: process.env.S3_REGION!,
+                endpoint: process.env.S3_ENDPOINT!,
+                forcePathStyle,
+                credentials: {
+                    accessKeyId: process.env.S3_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY!,
+                    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || process.env.S3_SECRET_KEY!,
+                },
+            });
+        } catch (err) {
+            console.error("Failed to initialize S3 client:", err);
+            throw new Error("S3 client initialization failed");
+        }
+    }
+    return s3Client;
+}
+
+export const s3 = getS3Client();
 
 export async function putCvObject(fileBuffer: Buffer, mimeType: string) {
     const key = `cvs/${new Date().toISOString().slice(0, 10)}/${randomUUID()}`;

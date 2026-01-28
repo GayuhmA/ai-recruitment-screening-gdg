@@ -44,8 +44,9 @@ RUN npm install --production
 COPY apps/api/prisma ./apps/api/prisma
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Generate Prisma Client in production stage
-RUN cd apps/api && npx prisma generate
+# NOTE: Do NOT run prisma generate here!
+# Railway injects DATABASE_URL only at runtime, not build time
+# Prisma Client will be generated when container starts
 
 # Expose port
 EXPOSE 3000
@@ -53,5 +54,6 @@ EXPOSE 3000
 # Set working directory to API
 WORKDIR /app/apps/api
 
-# Run migrations and start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# Run Prisma generate + migrations + start server
+# Generate must run at runtime when DATABASE_URL is available
+CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && node dist/server.js"]
