@@ -42,11 +42,11 @@ export function useCreateApplication() {
       api.applications.create(jobId, data),
     onSuccess: (newApplication, variables) => {
       toast.success('Application submitted', {
-        description: `Application for ${variables.data.candidateName} has been created`,
+        description: `Application created successfully`,
       });
       
-      // Invalidate applications list
-      queryClient.invalidateQueries({ queryKey: queryKeys.applications.lists() });
+      // Invalidate ALL applications
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
       
       // Invalidate job-specific data (matches and candidates)
       queryClient.invalidateQueries({ 
@@ -55,6 +55,9 @@ export function useCreateApplication() {
       queryClient.invalidateQueries({ 
         queryKey: queryKeys.jobs.candidates(newApplication.jobId) 
       });
+      
+      // Invalidate candidates (application affects candidate data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
       
       // Cache the new application
       queryClient.setQueryData(queryKeys.applications.detail(newApplication.id), newApplication);
@@ -87,8 +90,8 @@ export function useUpdateApplication() {
         updatedApplication
       );
       
-      // Invalidate lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.applications.lists() });
+      // Invalidate ALL applications
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
       
       // Invalidate job matches/candidates (status change affects ranking)
       queryClient.invalidateQueries({ 
@@ -97,6 +100,9 @@ export function useUpdateApplication() {
       queryClient.invalidateQueries({ 
         queryKey: queryKeys.jobs.candidates(updatedApplication.jobId) 
       });
+      
+      // Invalidate candidates (application status affects candidate data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
     onError: (error: any) => {
       toast.error('Failed to update application', {

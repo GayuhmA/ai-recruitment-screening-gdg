@@ -333,12 +333,21 @@ export default function JobDetailPage({
         }
       }
 
-      // Refresh candidates lists - both job-specific and global
+      // Aggressively refresh ALL related queries to ensure data is up-to-date everywhere
       queryClient.invalidateQueries({
         queryKey: queryKeys.jobs.candidates(id),
       });
       queryClient.invalidateQueries({
         queryKey: queryKeys.candidates.all,
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.applications.all,
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.cvs.all,
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.jobs.detail(id),
       });
 
       setTimeout(() => {
@@ -348,6 +357,14 @@ export default function JobDetailPage({
         if (allDone) {
           setIsUploadDialogOpen(false);
           setFileStatuses([]);
+          
+          // Final refresh after dialog closes to ensure UI is updated
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.jobs.candidates(id),
+          });
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.candidates.all,
+          });
         }
       }, 3000);
     } catch (error) {
