@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
 import { prisma } from "./lib/db.js";
-import { connection } from "./lib/bullmq.js";
+import { getConnection } from "./lib/bullmq.js";
 import { parseCvWithAI, parseCvFallback, type CvProfile } from "./ai/cv-parser.js";
 import { generateContextualSummary, performSmartMatching } from "./ai/smart-matcher.js";
 import { getObjectBuffer } from "./lib/s3.js";
@@ -319,7 +319,7 @@ new Worker(
       throw err;
     }
   },
-  { connection }
+  { connection: getConnection() },
 );
 
 console.log("✅ Worker started. Waiting for jobs in queue: cv-processing");
