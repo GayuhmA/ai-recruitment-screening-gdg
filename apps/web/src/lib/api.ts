@@ -138,7 +138,10 @@ class HttpClient {
       if (response.status === 401) {
         tokenManager.removeToken();
         if (typeof window !== 'undefined') {
-          if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+          if (
+            window.location.pathname !== '/login' &&
+            window.location.pathname !== '/register'
+          ) {
             window.location.href = '/login';
           }
         }

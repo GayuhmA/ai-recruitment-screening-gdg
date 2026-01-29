@@ -11,6 +11,7 @@ import { useState, FormEvent } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { signIn } from 'next-auth/react';
 import { ApiClientError } from '@/lib/api';
+import { toast } from 'sonner';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -49,7 +50,8 @@ export default function RegisterPage() {
         email: formData.email,
         password: formData.password,
       });
-      router.push('/dashboard');
+      router.push('/login');
+      toast.success('Account created successfully! Please log in.');
     } catch (err) {
       if (err instanceof ApiClientError) {
         setError(err.message);
