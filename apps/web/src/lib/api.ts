@@ -40,35 +40,50 @@ import type {
 // ===== Configuration =====
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:3001';
 const TOKEN_KEY = 'auth_token';
+const REFRESH_TOKEN_KEY = 'auth_refresh_token';
 const USER_KEY = 'auth_user';
+const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes (token expires in 15 minutes)
 
-// ===== Token Management =====
+// ===== Token Management with Session-based Storage =====
 export const tokenManager = {
   getToken(): string | null {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem(TOKEN_KEY);
+    // Use sessionStorage for tab-based session (expires when tab closes)
+    return sessionStorage.getItem(TOKEN_KEY);
   },
 
   setToken(token: string): void {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(TOKEN_KEY, token);
+  },
+
+  getRefreshToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    // Refresh token also uses sessionStorage
+    return sessionStorage.getItem(REFRESH_TOKEN_KEY);
+  },
+
+  setRefreshToken(token: string): void {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem(REFRESH_TOKEN_KEY, token);
   },
 
   removeToken(): void {
     if (typeof window === 'undefined') return;
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
   },
 
   getUser(): any {
     if (typeof window === 'undefined') return null;
-    const user = localStorage.getItem(USER_KEY);
+    const user = sessionStorage.getItem(USER_KEY);
     return user ? JSON.parse(user) : null;
   },
 
   setUser(user: any): void {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    sessionStorage.setItem(USER_KEY, JSON.stringify(user));
   },
 };
 
@@ -315,6 +330,76 @@ class HttpClient {
 // ===== API Client Instance =====
 const httpClient = new HttpClient(API_BASE_URL);
 
+// ===== Auto Token Refresh Mechanism =====
+let refreshIntervalId: NodeJS.Timeout | null = null;
+
+/**
+ * Starts automatic token refresh
+ * Token will be refreshed every 10 minutes (before the 15-minute expiry)
+ */
+export function startTokenRefresh() {
+  // Clear existing interval if any
+  stopTokenRefresh();
+  
+  if (typeof window === 'undefined') return;
+  
+  // Set up interval to refresh token
+  refreshIntervalId = setInterval(async () => {
+    try {
+      const refreshToken = tokenManager.getRefreshToken();
+      if (refreshToken) {
+        console.log('[Token Refresh] Refreshing access token...');
+        await authAPI.refreshToken();
+        console.log('[Token Refresh] Token refreshed successfully');
+      }
+    } catch (error) {
+      console.error('[Token Refresh] Failed to refresh token:', error);
+      // If refresh fails, user needs to login again
+      stopTokenRefresh();
+      tokenManager.removeToken();
+      
+      // Redirect to login if not already there
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+        window.location.href = '/login?session_expired=true';
+      }
+    }
+  }, TOKEN_REFRESH_INTERVAL);
+  
+  console.log('[Token Refresh] Auto-refresh started');
+}
+
+/**
+ * Stops automatic token refresh
+ */
+export function stopTokenRefresh() {
+  if (refreshIntervalId) {
+    clearInterval(refreshIntervalId);
+    refreshIntervalId = null;
+    console.log('[Token Refresh] Auto-refresh stopped');
+  }
+}
+
+/**
+ * Initialize token refresh on page load if user is authenticated
+ */
+if (typeof window !== 'undefined') {
+  // Check if there's a valid session on page load
+  window.addEventListener('load', () => {
+    const token = tokenManager.getToken();
+    const refreshToken = tokenManager.getRefreshToken();
+    
+    if (token && refreshToken) {
+      console.log('[Token Refresh] Session detected, starting auto-refresh');
+      startTokenRefresh();
+    }
+  });
+  
+  // Clean up on tab close
+  window.addEventListener('beforeunload', () => {
+    stopTokenRefresh();
+  });
+}
+
 // ===== API Methods =====
 
 /**
@@ -324,18 +409,51 @@ export const authAPI = {
   async login(data: LoginRequest): Promise<AuthResponse> {
     const response = await httpClient.post<AuthResponse>('/auth/login', data, false);
     tokenManager.setToken(response.accessToken);
+    if (response.refreshToken) {
+      tokenManager.setRefreshToken(response.refreshToken);
+    }
     tokenManager.setUser(response.user);
+    
+    // Start auto-refresh after login
+    startTokenRefresh();
+    
     return response;
   },
 
   async register(data: RegisterRequest): Promise<AuthResponse> {
     const response = await httpClient.post<AuthResponse>('/auth/register', data, false);
     tokenManager.setToken(response.accessToken);
+    if (response.refreshToken) {
+      tokenManager.setRefreshToken(response.refreshToken);
+    }
     tokenManager.setUser(response.user);
+    
+    // Start auto-refresh after register
+    startTokenRefresh();
+    
+    return response;
+  },
+
+  async refreshToken(): Promise<{ accessToken: string; user: any }> {
+    const refreshToken = tokenManager.getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+    
+    const response = await httpClient.post<{ accessToken: string; user: any }>(
+      '/auth/refresh',
+      { refreshToken },
+      false
+    );
+    
+    tokenManager.setToken(response.accessToken);
+    tokenManager.setUser(response.user);
+    
     return response;
   },
 
   logout(): void {
+    stopTokenRefresh();
     tokenManager.removeToken();
     if (typeof window !== 'undefined') {
       window.location.href = '/login';

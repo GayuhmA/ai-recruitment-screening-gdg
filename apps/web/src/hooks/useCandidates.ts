@@ -11,12 +11,17 @@ import type {
 
 /**
  * Hook to fetch list of candidates with pagination and search
+ * Includes auto-refetch for real-time updates
  */
 export function useCandidates(params?: SearchParams) {
   return useQuery({
     queryKey: queryKeys.candidates.list(params),
     queryFn: () => api.candidates.list(params),
     enabled: true,
+    // Auto-refetch every 5 seconds to keep data fresh
+    refetchInterval: 5000,
+    // Don't pause refetch when window is not focused (good for development)
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -44,7 +49,8 @@ export function useCreateCandidate() {
         description: `${newCandidate.name} has been added to the system`,
       });
       
-      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.lists() });
+      // Invalidate ALL candidate queries to force refresh everywhere
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
       queryClient.setQueryData(queryKeys.candidates.detail(newCandidate.id), newCandidate);
     },
     onError: (error: any) => {
@@ -70,7 +76,8 @@ export function useUpdateCandidate() {
       });
       
       queryClient.setQueryData(queryKeys.candidates.detail(variables.candidateId), updatedCandidate);
-      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.lists() });
+      // Invalidate ALL candidate queries to force refresh everywhere
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
     onError: (error: any) => {
       toast.error('Failed to update candidate', {
@@ -94,7 +101,8 @@ export function useDeleteCandidate() {
       });
       
       queryClient.removeQueries({ queryKey: queryKeys.candidates.detail(candidateId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.lists() });
+      // Invalidate ALL candidate queries to force refresh everywhere
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
     onError: (error: any) => {
       toast.error('Failed to delete candidate', {

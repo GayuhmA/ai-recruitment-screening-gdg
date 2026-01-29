@@ -7,11 +7,11 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Stale time: How long data is considered fresh (5 minutes)
-      staleTime: 5 * 60 * 1000,
+      // Stale time: How long data is considered fresh (30 seconds for more frequent updates)
+      staleTime: 30 * 1000,
       
-      // Cache time: How long unused data stays in cache (10 minutes)
-      gcTime: 10 * 60 * 1000,
+      // Cache time: How long unused data stays in cache (5 minutes)
+      gcTime: 5 * 60 * 1000,
       
       // Retry failed requests (3 attempts with exponential backoff)
       retry: 3,
@@ -23,8 +23,8 @@ export const queryClient = new QueryClient({
       // Refetch on reconnect (good for offline scenarios)
       refetchOnReconnect: true,
       
-      // Don't refetch on mount if data is still fresh
-      refetchOnMount: false,
+      // Refetch on mount to ensure fresh data
+      refetchOnMount: true,
     },
     mutations: {
       // Retry mutations once on failure

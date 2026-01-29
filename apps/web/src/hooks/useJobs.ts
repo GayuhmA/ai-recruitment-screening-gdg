@@ -44,12 +44,16 @@ export function useJobMatches(jobId: string | undefined, params?: { limit?: numb
 
 /**
  * Hook to fetch job candidates rankings
+ * Includes auto-refetch for real-time updates after CV uploads
  */
 export function useJobCandidates(jobId: string | undefined, params?: { limit?: number; cursor?: string }) {
   return useQuery({
     queryKey: queryKeys.jobs.candidates(jobId!),
     queryFn: () => api.jobs.getCandidates(jobId!, params),
     enabled: !!jobId,
+    // Auto-refetch every 5 seconds to catch new candidates/updates
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -62,8 +66,8 @@ export function useCreateJob() {
   return useMutation({
     mutationFn: (data: CreateJobRequest) => api.jobs.create(data),
     onSuccess: (newJob) => {
-      // Invalidate jobs list to refetch with new data
-      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.lists() });
+      // Invalidate ALL jobs to refetch everywhere
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
       
       // Optionally add the new job to cache
       queryClient.setQueryData(queryKeys.jobs.detail(newJob.id), newJob);
@@ -94,8 +98,8 @@ export function useUpdateJob() {
       // Update the specific job in cache
       queryClient.setQueryData(queryKeys.jobs.detail(variables.jobId), updatedJob);
       
-      // Invalidate lists to show updated data
-      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.lists() });
+      // Invalidate ALL jobs to show updated data everywhere
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
       
       toast.success('Job updated successfully');
     },
@@ -123,8 +127,8 @@ export function useDeleteJob() {
       // Remove from cache
       queryClient.removeQueries({ queryKey: queryKeys.jobs.detail(jobId) });
       
-      // Invalidate lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.lists() });
+      // Invalidate ALL jobs
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
     },
     onError: (error: any) => {
       // Check if it's a 409 Conflict (job has applications)

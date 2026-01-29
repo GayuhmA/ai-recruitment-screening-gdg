@@ -50,10 +50,8 @@ export function useCreateApplication() {
         description: `Application for ${newApplication.candidate?.name || 'candidate'} has been created`,
       });
 
-      // Invalidate applications list
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.applications.lists(),
-      });
+      // Invalidate ALL applications (paling aman untuk memastikan data konsisten)
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
 
       // Invalidate job-specific data (matches and candidates)
       queryClient.invalidateQueries({
@@ -62,6 +60,9 @@ export function useCreateApplication() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.jobs.candidates(newApplication.jobId),
       });
+
+      // Invalidate candidates (application affects candidate data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
 
       // Cache the new application
       queryClient.setQueryData(
@@ -99,11 +100,11 @@ export function useUpdateApplication() {
       // Update cache
       queryClient.setQueryData(
         queryKeys.applications.detail(variables.applicationId),
-        updatedApplication
+        updatedApplication,
       );
 
-      // Invalidate lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.applications.lists() });
+      // Invalidate ALL applications
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
 
       // Invalidate job matches/candidates (status change affects ranking)
       queryClient.invalidateQueries({
@@ -112,6 +113,9 @@ export function useUpdateApplication() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.jobs.candidates(updatedApplication.jobId),
       });
+
+      // Invalidate candidates (application status affects candidate data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
     onError: (error: any) => {
       toast.error('Failed to update application', {
@@ -138,9 +142,12 @@ export function useDeleteApplication() {
       queryClient.removeQueries({
         queryKey: queryKeys.applications.detail(applicationId),
       });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.applications.lists(),
-      });
+
+      // Invalidate ALL applications
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
+
+      // Invalidate candidates (deleting application affects candidate data)
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
     onError: (error: any) => {
       toast.error('Failed to delete application', {

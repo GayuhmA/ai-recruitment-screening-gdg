@@ -76,13 +76,16 @@ export function useUploadCV() {
         description: 'Your CV is now being processed',
       });
       
-      // Invalidate CV lists
-      queryClient.invalidateQueries({ queryKey: queryKeys.cvs.lists() });
+      // Invalidate ALL CV lists
+      queryClient.invalidateQueries({ queryKey: queryKeys.cvs.all });
       
       // Invalidate application detail (now has CV)
       queryClient.invalidateQueries({ 
         queryKey: queryKeys.applications.detail(newCV.applicationId) 
       });
+      
+      // Invalidate ALL application lists
+      queryClient.invalidateQueries({ queryKey: queryKeys.applications.all });
       
       // Cache the new CV
       queryClient.setQueryData(queryKeys.cvs.detail(newCV.id), newCV);
