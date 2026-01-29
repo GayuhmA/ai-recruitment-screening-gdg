@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import './worker';
+import './worker.js';
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
