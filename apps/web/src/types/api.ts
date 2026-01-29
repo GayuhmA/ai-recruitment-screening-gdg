@@ -131,6 +131,8 @@ export interface CvDocument {
   createdAt: string;
   updatedAt: string;
   application?: Application;
+  fileStatus?: 'READY' | 'FAILED';
+  aiStatus?: 'PENDING' | 'SUCCESS' | 'FAILED';
 }
 
 export interface AiOutput {
