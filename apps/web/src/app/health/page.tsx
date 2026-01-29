@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { useEffect, useState } from 'react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 interface HealthStatus {
   frontend: "healthy" | "error";
@@ -20,7 +26,12 @@ export default function HealthPage() {
     timestamp: new Date().toISOString(),
   });
 
+  const [origin, setOrigin] = useState<string>('');
+
   useEffect(() => {
+    // Client-side only
+    setOrigin(window.location.origin);
+
     checkBackendHealth();
     // Check every 30 seconds
     const interval = setInterval(checkBackendHealth, 30000);
@@ -29,7 +40,7 @@ export default function HealthPage() {
 
   const checkBackendHealth = async () => {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
-    
+
     try {
       const response = await fetch(`${backendUrl}/health`, {
         method: "GET",
@@ -99,7 +110,9 @@ export default function HealthPage() {
               </div>
               <div className="text-sm">
                 <span className="text-muted-foreground">URL:</span>
-                <span className="ml-2 font-mono text-xs">{window.location.origin}</span>
+                <span className="ml-2 font-mono text-xs">
+                  {origin || 'Loading...'}
+                </span>
               </div>
               <div className="text-sm">
                 <span className="text-muted-foreground">Version:</span>
@@ -124,7 +137,11 @@ export default function HealthPage() {
               <div className="text-sm">
                 <span className="text-muted-foreground">Status:</span>
                 <span className="ml-2 font-medium">
-                  {health.backend === "healthy" ? "Connected" : health.backend === "checking" ? "Checking..." : "Disconnected"}
+                  {health.backend === 'healthy'
+                    ? 'Connected'
+                    : health.backend === 'checking'
+                      ? 'Checking...'
+                      : 'Disconnected'}
                 </span>
               </div>
               <div className="text-sm">
