@@ -620,19 +620,65 @@ app.delete('/jobs/:jobId', {
 
     if (!exists) return reply.code(404).send({ message: 'Job not found' });
 
-    // Prevent deletion if job has applications
-    if (exists._count.applications > 0) {
-      return reply.code(409).send({
-        message: 'Cannot delete job with existing applications',
-        detail: `This job has ${exists._count.applications} application(s). Please close the job instead of deleting it.`,
-        applicationCount: exists._count.applications,
+    try {
+      await prisma.$transaction(async (tx) => {
+        const applications = await tx.application.findMany({
+          where: { jobId: params.jobId },
+          select: {
+            id: true,
+            candidateProfileId: true,
+          },
+        });
+
+        const appIds = applications.map((a) => a.id);
+        const candidateIds = [
+          ...new Set(applications.map((a) => a.candidateProfileId)),
+        ];
+
+        await tx.jobCandidateMatch.deleteMany({
+          where: { jobId: params.jobId },
+        });
+
+        if (appIds.length > 0) {
+          const cvs = await tx.cvDocument.findMany({
+            where: { applicationId: { in: appIds } },
+            select: { id: true },
+          });
+          const cvIds = cvs.map((cv) => cv.id);
+
+          if (cvIds.length > 0) {
+            await tx.aiOutput.deleteMany({
+              where: { cvDocumentId: { in: cvIds } },
+            });
+
+            await tx.cvDocument.deleteMany({
+              where: { id: { in: cvIds } },
+            });
+          }
+
+          await tx.application.deleteMany({
+            where: { jobId: params.jobId },
+          });
+        }
+
+        await tx.job.delete({
+          where: { id: params.jobId },
+        });
+
+        if (candidateIds.length > 0) {
+          await tx.candidateProfile.deleteMany({
+            where: { id: { in: candidateIds } },
+          });
+        }
       });
+
+      return reply.send({
+        message: 'Job, candidates, and all related data deleted successfully',
+      });
+    } catch (error) {
+      req.log.error(error);
+      return reply.code(500).send({ message: 'Failed to delete job', error });
     }
-
-    await prisma.job.delete({ where: { id: params.jobId } });
-
-    // Return 204 No Content (HTTP standard for successful DELETE)
-    return reply.code(204).send();
   },
 });
 
