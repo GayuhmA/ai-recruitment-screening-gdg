@@ -31,32 +31,37 @@ RUN cd apps/api && npm run build
 # ===== PRODUCTION STAGE =====
 FROM node:20-alpine
 
-WORKDIR /app
+# Set workdir langsung ke api folder
+WORKDIR /app/apps/api
 
-# Install production dependencies only
-COPY package*.json ./
-COPY apps/api/package*.json ./apps/api/
+# Copy package files
+COPY apps/api/package*.json ./
 
 # Install production dependencies
 RUN npm install --production
 
-# Copy prisma untuk migrations
-COPY apps/api/prisma ./apps/api/prisma
+# Copy prisma schema
+COPY apps/api/prisma ./prisma
+
+# Generate Prisma Client di lokasi yang benar
+RUN npx prisma generate
 
 # Copy built files dari builder stage
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/dist ./dist
 
-# Generate Prisma Client
-RUN cd apps/api && npx prisma generate
+# Copy start script
+COPY apps/api/start.sh ./start.sh
+RUN chmod +x ./start.sh
 
-# Expose port (internal, tidak langsung ke public)
+# Expose port
 EXPOSE 3000
 
-# Health check
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start aplikasi menggunakan start.sh yang punya logging
-WORKDIR /app/apps/api
-CMD ["./start.sh"]
+# Debug: Show what's in the directory
+RUN echo "=== Directory Contents ===" && ls -la && echo "=== Dist Contents ===" && ls -la dist/ 2>/dev/null || echo "No dist folder"
 
+# Start dengan logging
+CMD ["./start.sh"]
