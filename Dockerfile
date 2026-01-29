@@ -42,7 +42,11 @@ RUN npm install --production
 
 # Copy Prisma schema and generated client from builder
 COPY apps/api/prisma ./apps/api/prisma
+COPY apps/api/start.sh ./apps/api/start.sh
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+
+# Make start script executable
+RUN chmod +x ./apps/api/start.sh
 
 # NOTE: Do NOT run prisma generate here!
 # Railway injects DATABASE_URL only at runtime, not build time
@@ -54,6 +58,5 @@ EXPOSE 3000
 # Set working directory to API
 WORKDIR /app/apps/api
 
-# Run Prisma generate + migrations + start server
-# Generate must run at runtime when DATABASE_URL is available
-CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && node dist/server.js"]
+# Use start script with better error handling
+CMD ["./start.sh"]
