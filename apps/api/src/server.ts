@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import './worker.js';
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest, FastifyReply } from 'fastify';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
@@ -37,15 +37,15 @@ const corsOrigins =
 await app.register(cors, {
   origin: corsOrigins,
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
 });
 
 // Rate limiting for smoother experience and resource protection
 await app.register(rateLimit, {
   max: 100, // Max requests per timeWindow
-  timeWindow: "1 minute", // Time window for rate limiting
+  timeWindow: '1 minute', // Time window for rate limiting
   cache: 10000, // Cache size for storing request counts
-  allowList: ["127.0.0.1"], // Whitelist localhost for development
+  allowList: ['127.0.0.1'], // Whitelist localhost for development
   redis: undefined, // Can be configured with Redis for distributed systems
   skipOnError: true, // Continue serving on rate limit errors
   keyGenerator: (req) => req.ip, // Rate limit by IP address
@@ -60,6 +60,57 @@ await app.register(rateLimit, {
 await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
 
 app.get('/health', async () => ({ ok: true }));
+
+// Auth middleware type definition
+interface AuthUser {
+  id: string;
+  organizationId: string;
+  role: string;
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    user: AuthUser;
+  }
+}
+
+// Authentication middleware
+const requireAuth = async (req: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.code(401).send({ message: 'Unauthorized: Missing token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    // In production, verify JWT. for now, decode basic base64 token "userId:timestamp"
+    // Or just look up user by ID if token is just userId (for simple dev)
+    // The login generates: Buffer.from(`${userId}:${Date.now()}`).toString('base64')
+
+    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+    const [userId] = decoded.split(':');
+
+    if (!userId) {
+      return reply.code(401).send({ message: 'Unauthorized: Invalid token' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, organizationId: true, role: true },
+    });
+
+    if (!user) {
+      return reply.code(401).send({ message: 'Unauthorized: User not found' });
+    }
+
+    req.user = user;
+  } catch (error) {
+    req.log.error(error);
+    return reply
+      .code(401)
+      .send({ message: 'Unauthorized: Token processing failed' });
+  }
+};
 
 // ========== AUTH ENDPOINTS ==========
 
@@ -317,28 +368,12 @@ app.post(
   },
 );
 
-// NOTE: sementara hardcode 1 org untuk cepat (MVP lokal).
-// Nanti auth+org context baru kita rapihin.
-const ORG_ID = 'local-org';
-
-// bootstrap org on start (id fixed biar simpel)
-async function ensureOrg() {
-  const exists = await prisma.organization.findFirst({ where: { id: ORG_ID } });
-  if (!exists) {
-    await prisma.organization.create({
-      data: { id: ORG_ID, name: 'Local Org' },
-    });
-  }
-}
-await ensureOrg();
-
 // ========== USER ENDPOINTS ==========
 
-app.get('/users/me', async (req, reply) => {
+app.get('/users/me', { preHandler: requireAuth }, async (req, reply) => {
   try {
-    // For now, return the first user or mock data for development
-    // In production, you would extract userId from Authorization header
-    const user = await prisma.user.findFirst({
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
       select: {
         id: true,
         fullName: true,
@@ -349,17 +384,7 @@ app.get('/users/me', async (req, reply) => {
       },
     });
 
-    if (!user) {
-      // Return mock user for development if no users exist
-      return {
-        id: 'mock-user-id',
-        fullName: 'Development User',
-        email: 'dev@example.com',
-        role: 'admin',
-        organizationId: ORG_ID,
-        createdAt: new Date().toISOString(),
-      };
-    }
+    if (!user) return reply.code(404).send({ message: 'User not found' });
 
     return user;
   } catch (error) {
@@ -374,7 +399,7 @@ app.get('/users/me', async (req, reply) => {
 
 // ========== JOBS CRUD ==========
 
-app.get('/jobs', async (req) => {
+app.get('/jobs', { preHandler: requireAuth }, async (req) => {
   const query = z
     .object({
       limit: z.coerce.number().min(1).max(100).default(20),
@@ -383,7 +408,7 @@ app.get('/jobs', async (req) => {
     })
     .parse(req.query);
 
-  const where: any = { organizationId: ORG_ID };
+  const where: any = { organizationId: req.user.organizationId };
   if (query.q) {
     where.OR = [
       { title: { contains: query.q, mode: 'insensitive' } },
@@ -458,10 +483,13 @@ app.get('/jobs', async (req) => {
   return { data, nextCursor };
 });
 
-app.get('/jobs/:jobId', async (req, reply) => {
+app.get('/jobs/:jobId', { preHandler: requireAuth }, async (req, reply) => {
   const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
   const job = await prisma.job.findUnique({
-    where: { id: params.jobId },
+    where: {
+      id: params.jobId,
+      organizationId: req.user.organizationId, // Ensure ownership
+    },
     select: {
       id: true,
       title: true,
@@ -502,6 +530,7 @@ app.get('/jobs/:jobId', async (req, reply) => {
 });
 
 app.post('/jobs', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 20, // 20 job creations per minute
@@ -533,7 +562,7 @@ app.post('/jobs', {
 
     const job = await prisma.job.create({
       data: {
-        organizationId: ORG_ID,
+        organizationId: req.user.organizationId,
         title: body.title,
         description: body.description,
         department: body.department,
@@ -548,6 +577,7 @@ app.post('/jobs', {
 });
 
 app.patch('/jobs/:jobId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 30, // 30 updates per minute
@@ -572,7 +602,12 @@ app.patch('/jobs/:jobId', {
       })
       .parse(req.body);
 
-    const exists = await prisma.job.findUnique({ where: { id: params.jobId } });
+    const exists = await prisma.job.findUnique({
+      where: {
+        id: params.jobId,
+        organizationId: req.user.organizationId,
+      },
+    });
     if (!exists) return reply.code(404).send({ message: 'Job not found' });
 
     const updateData: any = {};
@@ -599,6 +634,7 @@ app.patch('/jobs/:jobId', {
 });
 
 app.delete('/jobs/:jobId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 15, // 15 deletions per minute
@@ -609,7 +645,10 @@ app.delete('/jobs/:jobId', {
     const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
 
     const exists = await prisma.job.findUnique({
-      where: { id: params.jobId },
+      where: {
+        id: params.jobId,
+        organizationId: req.user.organizationId,
+      },
       include: {
         _count: {
           select: {
@@ -685,7 +724,7 @@ app.delete('/jobs/:jobId', {
 
 // ========== CANDIDATES CRUD ==========
 
-app.get('/candidates', async (req) => {
+app.get('/candidates', { preHandler: requireAuth }, async (req) => {
   const query = z
     .object({
       limit: z.coerce.number().min(1).max(100).default(20),
@@ -694,7 +733,7 @@ app.get('/candidates', async (req) => {
     })
     .parse(req.query);
 
-  const where: any = { organizationId: ORG_ID };
+  const where: any = { organizationId: req.user.organizationId };
   if (query.q) {
     where.OR = [
       { fullName: { contains: query.q, mode: 'insensitive' } },
@@ -773,125 +812,138 @@ app.get('/candidates', async (req) => {
   return { data, nextCursor };
 });
 
-app.get('/candidates/:candidateId', async (req, reply) => {
-  try {
-    const params = z
-      .object({ candidateId: z.string().uuid() })
-      .parse(req.params);
+app.get(
+  '/candidates/:candidateId',
+  { preHandler: requireAuth },
+  async (req, reply) => {
+    try {
+      const params = z
+        .object({ candidateId: z.string().uuid() })
+        .parse(req.params);
 
-    const candidate = await prisma.candidateProfile.findUnique({
-      where: { id: params.candidateId },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        phone: true,
-        createdAt: true,
-      },
-    });
-
-    if (!candidate) {
-      return reply.code(404).send({
-        statusCode: 404,
-        error: 'Not Found',
-        message: 'Candidate not found',
+      const candidate = await prisma.candidateProfile.findUnique({
+        where: {
+          id: params.candidateId,
+          organizationId: req.user.organizationId,
+        },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          createdAt: true,
+        },
       });
-    }
 
-    // Get all applications for this candidate
-    const applications = await prisma.application.findMany({
-      where: { candidateProfileId: params.candidateId },
-      include: {
-        job: {
-          select: { id: true, title: true, department: true, status: true },
-        },
-        cvDocuments: {
-          select: { id: true, storageKey: true, status: true, mimeType: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1, // Get most recent CV
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // Get match scores for each application
-    const matches = await prisma.jobCandidateMatch.findMany({
-      where: { candidateProfileId: params.candidateId },
-      select: {
-        jobId: true,
-        score: true,
-        matchedSkills: true,
-        missingSkills: true,
-      },
-    });
-
-    const matchMap = new Map(matches.map((m) => [m.jobId, m]));
-
-    const applicationsWithScores = applications.map((app) => {
-      const match = matchMap.get(app.jobId);
-      const cv = app.cvDocuments?.[0]; // Get first (most recent) CV
-
-      // Map CvStatus to fileStatus & aiStatus
-      let fileStatus: 'READY' | 'FAILED' = 'READY';
-      let aiStatus: 'PENDING' | 'SUCCESS' | 'FAILED' = 'PENDING';
-
-      if (cv) {
-        // File is ready after upload (S3 upload success)
-        fileStatus = cv.status === 'FAILED' ? 'FAILED' : 'READY';
-
-        // AI status based on processing stages
-        if (cv.status === 'FAILED') {
-          aiStatus = 'FAILED';
-        } else if (cv.status === 'AI_DONE') {
-          aiStatus = 'SUCCESS';
-        } else {
-          aiStatus = 'PENDING'; // UPLOADED or TEXT_EXTRACTED
-        }
+      if (!candidate) {
+        return reply.code(404).send({
+          statusCode: 404,
+          error: 'Not Found',
+          message: 'Candidate not found',
+        });
       }
 
-      return {
-        id: app.id,
-        jobId: app.jobId,
-        cvId: cv?.id,
-        status: app.status,
-        createdAt: app.createdAt,
-        job: app.job,
-        cv: cv
-          ? {
-              id: cv.id,
-              fileStatus,
-              aiStatus,
-              mimeType: cv.mimeType,
-            }
-          : null,
-        matchScore: match?.score ?? 0,
-        matchedSkills: (match?.matchedSkills as string[]) ?? [],
-        missingSkills: (match?.missingSkills as string[]) ?? [],
-      };
-    });
+      // Get all applications for this candidate
+      const applications = await prisma.application.findMany({
+        where: { candidateProfileId: params.candidateId },
+        include: {
+          job: {
+            select: { id: true, title: true, department: true, status: true },
+          },
+          cvDocuments: {
+            select: {
+              id: true,
+              storageKey: true,
+              status: true,
+              mimeType: true,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 1, // Get most recent CV
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
 
-    return {
-      id: candidate.id,
-      name: candidate.fullName,
-      email: candidate.email,
-      phone: candidate.phone,
-      createdAt: candidate.createdAt,
-      applications: applicationsWithScores,
-    };
-  } catch (error) {
-    req.log.error(error);
-    return reply.code(500).send({
-      statusCode: 500,
-      error: 'Internal Server Error',
-      message:
-        error instanceof Error
-          ? error.message
-          : 'Failed to fetch candidate details',
-    });
-  }
-});
+      // Get match scores for each application
+      const matches = await prisma.jobCandidateMatch.findMany({
+        where: { candidateProfileId: params.candidateId },
+        select: {
+          jobId: true,
+          score: true,
+          matchedSkills: true,
+          missingSkills: true,
+        },
+      });
+
+      const matchMap = new Map(matches.map((m) => [m.jobId, m]));
+
+      const applicationsWithScores = applications.map((app) => {
+        const match = matchMap.get(app.jobId);
+        const cv = app.cvDocuments?.[0]; // Get first (most recent) CV
+
+        // Map CvStatus to fileStatus & aiStatus
+        let fileStatus: 'READY' | 'FAILED' = 'READY';
+        let aiStatus: 'PENDING' | 'SUCCESS' | 'FAILED' = 'PENDING';
+
+        if (cv) {
+          // File is ready after upload (S3 upload success)
+          fileStatus = cv.status === 'FAILED' ? 'FAILED' : 'READY';
+
+          // AI status based on processing stages
+          if (cv.status === 'FAILED') {
+            aiStatus = 'FAILED';
+          } else if (cv.status === 'AI_DONE') {
+            aiStatus = 'SUCCESS';
+          } else {
+            aiStatus = 'PENDING'; // UPLOADED or TEXT_EXTRACTED
+          }
+        }
+
+        return {
+          id: app.id,
+          jobId: app.jobId,
+          cvId: cv?.id,
+          status: app.status,
+          createdAt: app.createdAt,
+          job: app.job,
+          cv: cv
+            ? {
+                id: cv.id,
+                fileStatus,
+                aiStatus,
+                mimeType: cv.mimeType,
+              }
+            : null,
+          matchScore: match?.score ?? 0,
+          matchedSkills: (match?.matchedSkills as string[]) ?? [],
+          missingSkills: (match?.missingSkills as string[]) ?? [],
+        };
+      });
+
+      return {
+        id: candidate.id,
+        name: candidate.fullName,
+        email: candidate.email,
+        phone: candidate.phone,
+        createdAt: candidate.createdAt,
+        applications: applicationsWithScores,
+      };
+    } catch (error) {
+      req.log.error(error);
+      return reply.code(500).send({
+        statusCode: 500,
+        error: 'Internal Server Error',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to fetch candidate details',
+      });
+    }
+  },
+);
 
 app.post('/candidates', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 20, // 20 candidate creations per minute
@@ -908,13 +960,14 @@ app.post('/candidates', {
       .parse(req.body);
 
     const candidate = await prisma.candidateProfile.create({
-      data: { organizationId: ORG_ID, ...body },
+      data: { organizationId: req.user.organizationId, ...body },
     });
     return candidate;
   },
 });
 
 app.patch('/candidates/:candidateId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 30, // 30 updates per minute
@@ -948,6 +1001,7 @@ app.patch('/candidates/:candidateId', {
 });
 
 app.delete('/candidates/:candidateId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 15, // 15 deletions per minute
@@ -972,7 +1026,7 @@ app.delete('/candidates/:candidateId', {
 
 // ========== APPLICATIONS ==========
 
-app.get('/applications', async (req) => {
+app.get('/applications', { preHandler: requireAuth }, async (req) => {
   const query = z
     .object({
       limit: z.coerce.number().min(1).max(100).default(20),
@@ -982,7 +1036,10 @@ app.get('/applications', async (req) => {
     })
     .parse(req.query);
 
-  const where: any = {};
+  const where: any = {
+    // Ensure applications belong to jobs in user's organization
+    job: { organizationId: req.user.organizationId },
+  };
   if (query.jobId) where.jobId = query.jobId;
   if (query.candidateId) where.candidateProfileId = query.candidateId;
 
@@ -1014,46 +1071,65 @@ app.get('/applications', async (req) => {
   return { data, nextCursor };
 });
 
-app.get('/applications/:applicationId', async (req, reply) => {
-  const params = z
-    .object({ applicationId: z.string().uuid() })
-    .parse(req.params);
-  const application = await prisma.application.findUnique({
-    where: { id: params.applicationId },
-    select: {
-      id: true,
-      status: true,
-      createdAt: true,
-      job: {
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          requirements: true,
+app.get(
+  '/applications/:applicationId',
+  { preHandler: requireAuth },
+  async (req, reply) => {
+    const params = z
+      .object({ applicationId: z.string().uuid() })
+      .parse(req.params);
+    const application = await prisma.application.findUnique({
+      where: {
+        id: params.applicationId,
+        job: { organizationId: req.user.organizationId },
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        job: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            requirements: true,
+          },
+        },
+        candidate: {
+          select: { id: true, fullName: true, email: true, phone: true },
+        },
+        cvDocuments: {
+          select: { id: true, status: true, mimeType: true, createdAt: true },
         },
       },
-      candidate: {
-        select: { id: true, fullName: true, email: true, phone: true },
-      },
-      cvDocuments: {
-        select: { id: true, status: true, mimeType: true, createdAt: true },
-      },
-    },
-  });
-  if (!application)
-    return reply.code(404).send({ message: 'Application not found' });
-  return application;
-});
+    });
+    if (!application)
+      return reply.code(404).send({ message: 'Application not found' });
+    return application;
+  },
+);
 
 app.post('/jobs/:jobId/applications', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 25, // 25 applications per minute
       timeWindow: '1 minute',
     },
   },
-  handler: async (req) => {
+  handler: async (req, reply) => {
     const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
+
+    // Verify Job belongs to user's organization
+    const job = await prisma.job.findUnique({
+      where: {
+        id: params.jobId,
+        organizationId: req.user.organizationId,
+      },
+    });
+
+    if (!job) return reply.code(404).send({ message: 'Job not found' });
+
     const body = z
       .object({ candidateProfileId: z.string().uuid() })
       .parse(req.body);
@@ -1069,6 +1145,7 @@ app.post('/jobs/:jobId/applications', {
 });
 
 app.patch('/applications/:applicationId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 30, // 30 status updates per minute
@@ -1096,7 +1173,10 @@ app.patch('/applications/:applicationId', {
       .parse(req.body);
 
     const exists = await prisma.application.findUnique({
-      where: { id: params.applicationId },
+      where: {
+        id: params.applicationId,
+        job: { organizationId: req.user.organizationId },
+      },
     });
     if (!exists)
       return reply.code(404).send({ message: 'Application not found' });
@@ -1110,6 +1190,7 @@ app.patch('/applications/:applicationId', {
 });
 
 app.delete('/applications/:applicationId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 15, // 15 deletions per minute
@@ -1122,7 +1203,10 @@ app.delete('/applications/:applicationId', {
       .parse(req.params);
 
     const exists = await prisma.application.findUnique({
-      where: { id: params.applicationId },
+      where: {
+        id: params.applicationId,
+        job: { organizationId: req.user.organizationId },
+      },
     });
     if (!exists)
       return reply.code(404).send({ message: 'Application not found' });
@@ -1134,7 +1218,7 @@ app.delete('/applications/:applicationId', {
 
 // ========== CV DOCUMENTS ==========
 
-app.get('/cvs', async (req) => {
+app.get('/cvs', { preHandler: requireAuth }, async (req) => {
   const query = z
     .object({
       limit: z.coerce.number().min(1).max(100).default(20),
@@ -1146,7 +1230,13 @@ app.get('/cvs', async (req) => {
     })
     .parse(req.query);
 
-  const where: any = {};
+  // Filter by organization via Application -> Job
+  // Filter by organization via Application -> Job
+  const where: any = {
+    application: {
+      job: { organizationId: req.user.organizationId },
+    },
+  };
   if (query.applicationId) where.applicationId = query.applicationId;
   if (query.status) where.status = query.status;
 
@@ -1187,10 +1277,15 @@ app.get('/cvs', async (req) => {
   return { data, nextCursor };
 });
 
-app.get('/cvs/:cvId', async (req, reply) => {
+app.get('/cvs/:cvId', { preHandler: requireAuth }, async (req, reply) => {
   const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
   const cv = await prisma.cvDocument.findUnique({
-    where: { id: params.cvId },
+    where: {
+      id: params.cvId,
+      application: {
+        job: { organizationId: req.user.organizationId },
+      },
+    },
     select: {
       id: true,
       status: true,
@@ -1222,10 +1317,15 @@ app.get('/cvs/:cvId', async (req, reply) => {
   };
 });
 
-app.get('/cvs/:cvId/status', async (req) => {
+app.get('/cvs/:cvId/status', { preHandler: requireAuth }, async (req) => {
   const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
   const cv = await prisma.cvDocument.findUnique({
-    where: { id: params.cvId },
+    where: {
+      id: params.cvId,
+      application: {
+        job: { organizationId: req.user.organizationId },
+      },
+    },
     select: {
       id: true,
       status: true,
@@ -1238,81 +1338,104 @@ app.get('/cvs/:cvId/status', async (req) => {
 });
 
 // GET /cvs/:cvId/preview-url - Get presigned URL for PDF preview (inline)
-app.get('/cvs/:cvId/preview-url', async (req, reply) => {
-  const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
+app.get(
+  '/cvs/:cvId/preview-url',
+  { preHandler: requireAuth },
+  async (req, reply) => {
+    const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
 
-  const cv = await prisma.cvDocument.findUnique({
-    where: { id: params.cvId },
-    select: { id: true, storageKey: true, status: true },
-  });
-
-  if (!cv) {
-    return reply.code(404).send({ message: 'CV not found' });
-  }
-
-  // Check fileStatus - file must be uploaded to S3
-  if (cv.status === 'FAILED') {
-    return reply.code(409).send({
-      message: 'CV file is corrupted or failed to upload',
+    const cv = await prisma.cvDocument.findUnique({
+      where: {
+        id: params.cvId,
+        application: {
+          job: { organizationId: req.user.organizationId },
+        },
+      },
+      select: { id: true, storageKey: true, status: true },
     });
-  }
 
-  try {
-    // Generate signed URL with inline disposition for preview
-    const url = await getPresignedDownloadUrl(cv.storageKey, 300); // 5 min expiry for preview
-    return {
-      url,
-      expiresIn: 300,
-    };
-  } catch (error) {
-    app.log.error(error, 'Failed to generate presigned preview URL');
-    return reply.code(500).send({
-      message: 'Failed to generate preview URL',
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
+    if (!cv) {
+      return reply.code(404).send({ message: 'CV not found' });
+    }
+
+    // Check fileStatus - file must be uploaded to S3
+    if (cv.status === 'FAILED') {
+      return reply.code(409).send({
+        message: 'CV file is corrupted or failed to upload',
+      });
+    }
+
+    try {
+      // Generate signed URL with inline disposition for preview
+      const url = await getPresignedDownloadUrl(cv.storageKey, 300); // 5 min expiry for preview
+      return {
+        url,
+        expiresIn: 300,
+      };
+    } catch (error) {
+      app.log.error(error, 'Failed to generate presigned preview URL');
+      return reply.code(500).send({
+        message: 'Failed to generate preview URL',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
 
 // GET /cvs/:cvId/download-url - Get presigned URL for PDF download (attachment)
-app.get('/cvs/:cvId/download-url', async (req, reply) => {
+app.get(
+  '/cvs/:cvId/download-url',
+  { preHandler: requireAuth },
+  async (req, reply) => {
+    const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
+
+    const cv = await prisma.cvDocument.findUnique({
+      where: {
+        id: params.cvId,
+        application: {
+          job: { organizationId: req.user.organizationId },
+        },
+      },
+      select: { id: true, storageKey: true, status: true },
+    });
+
+    if (!cv) {
+      return reply.code(404).send({ message: 'CV not found' });
+    }
+
+    if (cv.status === 'FAILED') {
+      return reply.code(409).send({
+        message: 'CV file is corrupted or failed to upload',
+      });
+    }
+
+    try {
+      // Generate signed URL with attachment disposition for download
+      const url = await getPresignedDownloadUrl(cv.storageKey, 3600); // 1 hour expiry
+      return {
+        url,
+        expiresIn: 3600,
+      };
+    } catch (error) {
+      app.log.error(error, 'Failed to generate presigned download URL');
+      return reply.code(500).send({
+        message: 'Failed to generate download URL',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
+);
+
+app.get('/cvs/:cvId/ai', { preHandler: requireAuth }, async (req, reply) => {
   const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
 
   const cv = await prisma.cvDocument.findUnique({
-    where: { id: params.cvId },
-    select: { id: true, storageKey: true, status: true },
-  });
-
-  if (!cv) {
-    return reply.code(404).send({ message: 'CV not found' });
-  }
-
-  if (cv.status === 'FAILED') {
-    return reply.code(409).send({
-      message: 'CV file is corrupted or failed to upload',
-    });
-  }
-
-  try {
-    // Generate signed URL with attachment disposition for download
-    const url = await getPresignedDownloadUrl(cv.storageKey, 3600); // 1 hour expiry
-    return {
-      url,
-      expiresIn: 3600,
-    };
-  } catch (error) {
-    app.log.error(error, 'Failed to generate presigned download URL');
-    return reply.code(500).send({
-      message: 'Failed to generate download URL',
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-app.get('/cvs/:cvId/ai', async (req, reply) => {
-  const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
-
-  const cv = await prisma.cvDocument.findUnique({
-    where: { id: params.cvId },
+    where: {
+      id: params.cvId,
+      application: {
+        job: { organizationId: req.user.organizationId },
+      },
+    },
     select: {
       id: true,
       status: true,
@@ -1350,6 +1473,7 @@ app.get('/cvs/:cvId/ai', async (req, reply) => {
 });
 
 app.post('/applications/:applicationId/cv', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 10, // Only 10 CV uploads per minute per IP
@@ -1360,6 +1484,16 @@ app.post('/applications/:applicationId/cv', {
     const params = z
       .object({ applicationId: z.string().uuid() })
       .parse(req.params);
+
+    // Verify application belongs to user's organization
+    const application = await prisma.application.findUnique({
+      where: {
+        id: params.applicationId,
+        job: { organizationId: req.user.organizationId },
+      },
+    });
+    if (!application)
+      return reply.code(404).send({ message: 'Application not found' });
 
     const file = await req.file();
     if (!file) return reply.code(400).send({ message: 'file is required' });
@@ -1386,6 +1520,7 @@ app.post('/applications/:applicationId/cv', {
 });
 
 app.delete('/cvs/:cvId', {
+  preHandler: requireAuth,
   config: {
     rateLimit: {
       max: 15, // 15 CV deletions per minute
@@ -1396,7 +1531,12 @@ app.delete('/cvs/:cvId', {
     const params = z.object({ cvId: z.string().uuid() }).parse(req.params);
 
     const cv = await prisma.cvDocument.findUnique({
-      where: { id: params.cvId },
+      where: {
+        id: params.cvId,
+        application: {
+          job: { organizationId: req.user.organizationId },
+        },
+      },
       select: { storageKey: true },
     });
     if (!cv) return reply.code(404).send({ message: 'CV not found' });
@@ -1411,140 +1551,157 @@ app.delete('/cvs/:cvId', {
 
 // ========== MATCHES & RANKINGS (Read-only) ==========
 
-app.get('/jobs/:jobId/matches', async (req) => {
-  const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
-  const query = z
-    .object({ sort: z.enum(['score_desc', 'score_asc']).optional() })
-    .parse((req as any).query ?? {});
-
-  const job = await prisma.job.findUnique({
-    where: { id: params.jobId },
-    select: { requirements: true },
-  });
-
-  if (!job) return [];
-
-  const jobRequirements = job.requirements as any;
-  const jobSkills = Array.isArray(jobRequirements?.requiredSkills)
-    ? (jobRequirements.requiredSkills as unknown[]).filter(
-        (x): x is string => typeof x === 'string',
-      )
-    : [];
-
-  const orderBy =
-    query.sort === 'score_asc'
-      ? { score: 'asc' as const }
-      : { score: 'desc' as const };
-  const matches = await prisma.jobCandidateMatch.findMany({
-    where: { jobId: params.jobId },
-    orderBy,
-    select: {
-      score: true,
-      matchedSkills: true,
-      missingSkills: true,
-      updatedAt: true,
-      candidate: {
-        select: { id: true, fullName: true, email: true, phone: true },
-      },
-    },
-  });
-
-  return matches.map((m) => ({
-    candidate: m.candidate,
-    score: m.score,
-    matchedSkills: Array.isArray(m.matchedSkills)
-      ? (m.matchedSkills as unknown[]).filter(
-          (x): x is string => typeof x === 'string',
-        )
-      : [],
-    missingSkills: Array.isArray(m.missingSkills)
-      ? (m.missingSkills as unknown[]).filter(
-          (x): x is string => typeof x === 'string',
-        )
-      : [],
-    jobRequiredSkills: jobSkills,
-    updatedAt: m.updatedAt,
-  }));
-});
-
-app.get('/jobs/:jobId/candidates', async (req, reply) => {
-  try {
+app.get(
+  '/jobs/:jobId/matches',
+  { preHandler: requireAuth },
+  async (req, reply) => {
     const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
     const query = z
       .object({ sort: z.enum(['score_desc', 'score_asc']).optional() })
       .parse((req as any).query ?? {});
 
-    // Get all applications for this job (including those still processing)
-    const applications = await prisma.application.findMany({
-      where: { jobId: params.jobId },
-      include: {
-        candidate: {
-          select: { id: true, fullName: true, email: true, phone: true },
-        },
-        cvDocuments: {
-          select: { id: true, status: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
+    const job = await prisma.job.findUnique({
+      where: {
+        id: params.jobId,
+        organizationId: req.user.organizationId,
       },
+      select: { requirements: true },
     });
 
-    // Get match scores
+    if (!job) return reply.code(404).send({ message: 'Job not found' });
+
+    const jobRequirements = job.requirements as any;
+    const jobSkills = Array.isArray(jobRequirements?.requiredSkills)
+      ? (jobRequirements.requiredSkills as unknown[]).filter(
+          (x): x is string => typeof x === 'string',
+        )
+      : [];
+
+    const orderBy =
+      query.sort === 'score_asc'
+        ? { score: 'asc' as const }
+        : { score: 'desc' as const };
     const matches = await prisma.jobCandidateMatch.findMany({
       where: { jobId: params.jobId },
+      orderBy,
       select: {
-        candidateProfileId: true,
         score: true,
         matchedSkills: true,
         missingSkills: true,
-        aiExplanation: true,
+        updatedAt: true,
+        candidate: {
+          select: { id: true, fullName: true, email: true, phone: true },
+        },
       },
     });
 
-    const matchMap = new Map(matches.map((m) => [m.candidateProfileId, m]));
+    return matches.map((m) => ({
+      candidate: m.candidate,
+      score: m.score,
+      matchedSkills: Array.isArray(m.matchedSkills)
+        ? (m.matchedSkills as unknown[]).filter(
+            (x): x is string => typeof x === 'string',
+          )
+        : [],
+      missingSkills: Array.isArray(m.missingSkills)
+        ? (m.missingSkills as unknown[]).filter(
+            (x): x is string => typeof x === 'string',
+          )
+        : [],
+      jobRequiredSkills: jobSkills,
+      updatedAt: m.updatedAt,
+    }));
+  },
+);
 
-    const result = applications.map((app) => {
-      const match = matchMap.get(app.candidateProfileId);
-      const cvDoc = app.cvDocuments[0];
-      const cvStatus = cvDoc?.status;
+app.get(
+  '/jobs/:jobId/candidates',
+  { preHandler: requireAuth },
+  async (req, reply) => {
+    try {
+      const params = z.object({ jobId: z.string().uuid() }).parse(req.params);
+      const query = z
+        .object({ sort: z.enum(['score_desc', 'score_asc']).optional() })
+        .parse((req as any).query ?? {});
 
-      return {
-        candidate: {
-          id: app.candidate.id,
-          name: app.candidate.fullName,
-          email: app.candidate.email,
-          phone: app.candidate.phone,
-        },
-        application: {
-          id: app.id,
-          status: app.status,
-          createdAt: app.createdAt,
-        },
-        matchScore: match?.score ?? 0,
-        matchedSkills: match?.matchedSkills ?? [],
-        missingSkills: match?.missingSkills ?? [],
-        aiExplanation: match?.aiExplanation ?? null,
-        cvStatus: cvStatus,
-      };
-    });
-
-    // Sort by score if requested
-    if (query.sort) {
-      result.sort((a, b) => {
-        return query.sort === 'score_asc'
-          ? a.matchScore - b.matchScore
-          : b.matchScore - a.matchScore;
+      // Verify job ownership first
+      const job = await prisma.job.findUnique({
+        where: { id: params.jobId, organizationId: req.user.organizationId },
       });
-    }
+      if (!job) return reply.code(404).send({ message: 'Job not found' });
 
-    return { data: result };
-  } catch (error) {
-    console.error('Error in /jobs/:jobId/candidates:', error);
-    reply
-      .status(500)
-      .send({ error: 'Internal server error', details: error.message });
-  }
-});
+      // Get all applications for this job (including those still processing)
+      const applications = await prisma.application.findMany({
+        where: { jobId: params.jobId },
+        include: {
+          candidate: {
+            select: { id: true, fullName: true, email: true, phone: true },
+          },
+          cvDocuments: {
+            select: { id: true, status: true },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+      });
+
+      // Get match scores
+      const matches = await prisma.jobCandidateMatch.findMany({
+        where: { jobId: params.jobId },
+        select: {
+          candidateProfileId: true,
+          score: true,
+          matchedSkills: true,
+          missingSkills: true,
+          aiExplanation: true,
+        },
+      });
+
+      const matchMap = new Map(matches.map((m) => [m.candidateProfileId, m]));
+
+      const result = applications.map((app) => {
+        const match = matchMap.get(app.candidateProfileId);
+        const cvDoc = app.cvDocuments[0];
+        const cvStatus = cvDoc?.status;
+
+        return {
+          candidate: {
+            id: app.candidate.id,
+            name: app.candidate.fullName,
+            email: app.candidate.email,
+            phone: app.candidate.phone,
+          },
+          application: {
+            id: app.id,
+            status: app.status,
+            createdAt: app.createdAt,
+          },
+          matchScore: match?.score ?? 0,
+          matchedSkills: match?.matchedSkills ?? [],
+          missingSkills: match?.missingSkills ?? [],
+          aiExplanation: match?.aiExplanation ?? null,
+          cvStatus: cvStatus,
+        };
+      });
+
+      // Sort by score if requested
+      if (query.sort) {
+        result.sort((a, b) => {
+          return query.sort === 'score_asc'
+            ? a.matchScore - b.matchScore
+            : b.matchScore - a.matchScore;
+        });
+      }
+
+      return { data: result };
+    } catch (error) {
+      console.error('Error in /jobs/:jobId/candidates:', error);
+      reply
+        .status(500)
+        .send({ error: 'Internal server error', details: error.message });
+    }
+  },
+);
 
 // Railway injects PORT, not APP_PORT
 const port = Number(process.env.PORT || process.env.APP_PORT || 3001);
