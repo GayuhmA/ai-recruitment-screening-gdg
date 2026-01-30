@@ -1,44 +1,58 @@
-import "dotenv/config";
-import { Worker } from "bullmq";
-import { prisma } from "./lib/db.js";
-import { getConnection } from "./lib/bullmq.js";
-import { parseCvWithAI, parseCvFallback, type CvProfile } from "./ai/cv-parser.js";
-import { generateContextualSummary, performSmartMatching } from "./ai/smart-matcher.js";
-import { getObjectBuffer } from "./lib/s3.js";
-import { extractTextFromPdf } from "./lib/pdf.js";
+import 'dotenv/config';
+import { Worker } from 'bullmq';
+import { prisma } from './lib/db.js';
+import { getConnection } from './lib/bullmq.js';
+import {
+  parseCvWithAI,
+  parseCvFallback,
+  type CvProfile,
+} from './ai/cv-parser.js';
+import {
+  generateContextualSummary,
+  performSmartMatching,
+} from './ai/smart-matcher.js';
+import { getObjectBuffer } from './lib/s3.js';
+import { extractTextFromPdf } from './lib/pdf.js';
 
 // Classify error reason for user-friendly display
-function classifyFailReason(err: unknown): 
-  | "S3_UPLOAD_FAILED" 
-  | "PDF_PARSE_FAILED" 
-  | "PDF_TEXT_EMPTY"
-  | "AI_QUOTA_EXCEEDED" 
-  | "AI_RATE_LIMITED" 
-  | "AI_AUTH_FAILED"
-  | "AI_TIMEOUT" 
-  | "AI_FAILED" 
-  | "DB_FAILED" 
-  | "UNKNOWN" {
+function classifyFailReason(
+  err: unknown,
+):
+  | 'S3_UPLOAD_FAILED'
+  | 'PDF_PARSE_FAILED'
+  | 'PDF_TEXT_EMPTY'
+  | 'AI_QUOTA_EXCEEDED'
+  | 'AI_RATE_LIMITED'
+  | 'AI_AUTH_FAILED'
+  | 'AI_TIMEOUT'
+  | 'AI_FAILED'
+  | 'DB_FAILED'
+  | 'UNKNOWN' {
   const msg = err instanceof Error ? err.message : String(err);
 
   // Storage errors
-  if (/NoSuchBucket|bucket|S3|MinIO|download/i.test(msg)) return "S3_UPLOAD_FAILED";
-  
+  if (/NoSuchBucket|bucket|S3|MinIO|download/i.test(msg))
+    return 'S3_UPLOAD_FAILED';
+
   // PDF errors
-  if (/pdf contains no extractable text|scanned|image-based/i.test(msg)) return "PDF_TEXT_EMPTY";
-  if (/pdf|parse|invalid pdf/i.test(msg)) return "PDF_PARSE_FAILED";
-  
+  if (/pdf contains no extractable text|scanned|image-based/i.test(msg))
+    return 'PDF_TEXT_EMPTY';
+  if (/pdf|parse|invalid pdf/i.test(msg)) return 'PDF_PARSE_FAILED';
+
   // AI errors - specific classification
-  if (/quota.*exceeded|exceeded.*quota|429.*quota/i.test(msg)) return "AI_QUOTA_EXCEEDED";
-  if (/rate limit|too many requests|429/i.test(msg)) return "AI_RATE_LIMITED";
-  if (/unauthorized|invalid.*api.*key|authentication|401|403/i.test(msg)) return "AI_AUTH_FAILED";
-  if (/timeout|ETIMEDOUT|deadline|timed out/i.test(msg)) return "AI_TIMEOUT";
-  if (/gemini|model|generateContent|extraction failed/i.test(msg)) return "AI_FAILED";
-  
+  if (/quota.*exceeded|exceeded.*quota|429.*quota/i.test(msg))
+    return 'AI_QUOTA_EXCEEDED';
+  if (/rate limit|too many requests|429/i.test(msg)) return 'AI_RATE_LIMITED';
+  if (/unauthorized|invalid.*api.*key|authentication|401|403/i.test(msg))
+    return 'AI_AUTH_FAILED';
+  if (/timeout|ETIMEDOUT|deadline|timed out/i.test(msg)) return 'AI_TIMEOUT';
+  if (/gemini|model|generateContent|extraction failed/i.test(msg))
+    return 'AI_FAILED';
+
   // Database errors
-  if (/prisma|database|postgres/i.test(msg)) return "DB_FAILED";
-  
-  return "UNKNOWN";
+  if (/prisma|database|postgres/i.test(msg)) return 'DB_FAILED';
+
+  return 'UNKNOWN';
 }
 
 // Consistent normalization (lowercase + trim)
@@ -50,14 +64,14 @@ function norm(s: string): string {
  * Extract required skills from job requirements JSON
  */
 function getJobSkillsFromRequirements(requirements: unknown): string[] {
-  if (!requirements || typeof requirements !== "object") return [];
+  if (!requirements || typeof requirements !== 'object') return [];
 
   const req = requirements as Record<string, unknown>;
   const raw = (req.requiredSkills ?? req.skills) as unknown;
   if (!Array.isArray(raw)) return [];
 
   return raw
-    .filter((x): x is string => typeof x === "string")
+    .filter((x): x is string => typeof x === 'string')
     .map(norm)
     .filter((x) => x.length > 0);
 }
@@ -82,7 +96,7 @@ async function getJobDetails(jobId: string) {
 
   return {
     title: job.title,
-    department: job.department || "General",
+    department: job.department || 'General',
     description: job.description,
     requiredSkills: getJobSkillsFromRequirements(job.requirements),
   };
@@ -90,17 +104,16 @@ async function getJobDetails(jobId: string) {
 
 function isAiFailure(reason: string) {
   return [
-    "AI_QUOTA_EXCEEDED",
-    "AI_RATE_LIMITED",
-    "AI_AUTH_FAILED",
-    "AI_TIMEOUT",
-    "AI_FAILED",
+    'AI_QUOTA_EXCEEDED',
+    'AI_RATE_LIMITED',
+    'AI_AUTH_FAILED',
+    'AI_TIMEOUT',
+    'AI_FAILED',
   ].includes(reason);
 }
 
-
 new Worker(
-  "cv-processing",
+  'cv-processing',
   async (job) => {
     const { cvDocumentId } = job.data as { cvDocumentId: string };
 
@@ -114,7 +127,7 @@ new Worker(
       });
 
       if (!cvDoc) {
-        throw new Error("CV document not found");
+        throw new Error('CV document not found');
       }
 
       // 2. Download PDF from S3 and extract text
@@ -126,17 +139,18 @@ new Worker(
         await prisma.cvDocument.update({
           where: { id: cvDocumentId },
           data: {
-            status: "FAILED",
-            errorMessage: "PDF contains no extractable text. This may be a scanned/image-based PDF that requires OCR.",
-            failReason: "PDF_TEXT_EMPTY",
+            status: 'FAILED',
+            errorMessage:
+              'PDF contains no extractable text. This may be a scanned/image-based PDF that requires OCR.',
+            failReason: 'PDF_TEXT_EMPTY',
           },
         });
-        throw new Error("PDF text extraction returned empty result");
+        throw new Error('PDF text extraction returned empty result');
       }
 
       await prisma.cvDocument.update({
         where: { id: cvDocumentId },
-        data: { extractedText, status: "TEXT_EXTRACTED" },
+        data: { extractedText, status: 'TEXT_EXTRACTED' },
       });
 
       // 3. PHASE 1: Parse CV with AI (comprehensive extraction)
@@ -156,11 +170,13 @@ new Worker(
       await prisma.aiOutput.create({
         data: {
           cvDocumentId,
-          type: "CV_PROFILE",
+          type: 'CV_PROFILE',
           outputJson: cvProfile as any,
           modelMeta: {
-            provider: usedFallback ? "fallback" : "gemini",
-            model: usedFallback ? "keyword-extraction" : process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+            provider: usedFallback ? 'fallback' : 'gemini',
+            model: usedFallback
+              ? 'keyword-extraction'
+              : process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
           },
         },
       });
@@ -180,7 +196,7 @@ new Worker(
 
       const app = cv?.application;
       if (!app) {
-        throw new Error("Application not found for this CV");
+        throw new Error('Application not found for this CV');
       }
 
       const jobDetails = await getJobDetails(app.jobId);
@@ -192,13 +208,21 @@ new Worker(
 
       if (!usedFallback) {
         try {
-          const summaryResult = await generateContextualSummary(cvProfile, jobDetails);
+          const summaryResult = await generateContextualSummary(
+            cvProfile,
+            jobDetails,
+          );
           contextualSummary = summaryResult.contextualSummary;
           keyHighlights = summaryResult.keyHighlights;
           relevanceScore = summaryResult.relevanceScore;
-          console.log(`✅ Context-aware summary generated for CV ${cvDocumentId}`);
+          console.log(
+            `✅ Context-aware summary generated for CV ${cvDocumentId}`,
+          );
         } catch (summaryError) {
-          console.warn(`⚠️ Summary generation failed, using generic:`, summaryError);
+          console.warn(
+            `⚠️ Summary generation failed, using generic:`,
+            summaryError,
+          );
           contextualSummary = cvProfile.professionalSummary;
           keyHighlights = cvProfile.skills.technical.slice(0, 5);
           relevanceScore = 50;
@@ -213,15 +237,17 @@ new Worker(
       await prisma.aiOutput.create({
         data: {
           cvDocumentId,
-          type: "SUMMARY",
+          type: 'SUMMARY',
           outputJson: {
             contextualSummary,
             keyHighlights,
             relevanceScore,
           } as any,
           modelMeta: {
-            provider: usedFallback ? "fallback" : "gemini",
-            model: usedFallback ? "basic-template" : process.env.GEMINI_MODEL || "gemini-2.0-flash-exp",
+            provider: usedFallback ? 'fallback' : 'gemini',
+            model: usedFallback
+              ? 'basic-template'
+              : process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
           },
         },
       });
@@ -236,12 +262,12 @@ new Worker(
         try {
           const smartMatch = await performSmartMatching(
             cvProfile.skills.technical,
-            jobDetails.requiredSkills
+            jobDetails.requiredSkills,
           );
           matchScore = smartMatch.overallMatchScore;
           matchedSkills = [
             ...smartMatch.exactMatches,
-            ...smartMatch.similarMatches.map(m => m.candidateSkill),
+            ...smartMatch.similarMatches.map((m) => m.candidateSkill),
           ];
           missingSkills = smartMatch.missingCritical;
           matchExplanation = smartMatch.matchExplanation;
@@ -249,23 +275,29 @@ new Worker(
         } catch (matchError) {
           console.warn(`⚠️ Smart matching failed, using basic:`, matchError);
           // Fallback to basic exact matching
-          const candidateSkillSet = new Set(cvProfile.skills.technical.map(norm));
+          const candidateSkillSet = new Set(
+            cvProfile.skills.technical.map(norm),
+          );
           const jobSkillsNorm = jobDetails.requiredSkills.map(norm);
-          matchedSkills = jobSkillsNorm.filter(s => candidateSkillSet.has(s));
-          missingSkills = jobSkillsNorm.filter(s => !candidateSkillSet.has(s));
-          matchScore = jobSkillsNorm.length > 0 
-            ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
-            : 0;
+          matchedSkills = jobSkillsNorm.filter((s) => candidateSkillSet.has(s));
+          missingSkills = jobSkillsNorm.filter(
+            (s) => !candidateSkillSet.has(s),
+          );
+          matchScore =
+            jobSkillsNorm.length > 0
+              ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
+              : 0;
         }
       } else {
         // Basic matching for fallback mode
         const candidateSkillSet = new Set(cvProfile.skills.technical.map(norm));
         const jobSkillsNorm = jobDetails.requiredSkills.map(norm);
-        matchedSkills = jobSkillsNorm.filter(s => candidateSkillSet.has(s));
-        missingSkills = jobSkillsNorm.filter(s => !candidateSkillSet.has(s));
-        matchScore = jobSkillsNorm.length > 0 
-          ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
-          : 0;
+        matchedSkills = jobSkillsNorm.filter((s) => candidateSkillSet.has(s));
+        missingSkills = jobSkillsNorm.filter((s) => !candidateSkillSet.has(s));
+        matchScore =
+          jobSkillsNorm.length > 0
+            ? Math.round((matchedSkills.length / jobSkillsNorm.length) * 100)
+            : 0;
       }
 
       // Store match result with AI explanation
@@ -295,7 +327,7 @@ new Worker(
       // 7. Mark as done
       await prisma.cvDocument.update({
         where: { id: cvDocumentId },
-        data: { status: "AI_DONE" },
+        data: { status: 'AI_DONE' },
       });
 
       return { ok: true };
@@ -304,13 +336,16 @@ new Worker(
       const failReason = classifyFailReason(err);
       const errorMessage = err instanceof Error ? err.message : String(err);
 
-      console.error(`❌ CV processing failed for ${cvDocumentId}:`, errorMessage);
+      console.error(
+        `❌ CV processing failed for ${cvDocumentId}:`,
+        errorMessage,
+      );
 
       // === NON-AI FAILURE (tetap FAILED) ===
       await prisma.cvDocument.update({
         where: { id: cvDocumentId },
         data: {
-          status: "FAILED",
+          status: 'FAILED',
           errorMessage,
           failReason,
         },
@@ -322,5 +357,4 @@ new Worker(
   { connection: getConnection() },
 );
 
-console.log("✅ Worker started. Waiting for jobs in queue: cv-processing");
-
+console.log('✅ Worker started. Waiting for jobs in queue: cv-processing');

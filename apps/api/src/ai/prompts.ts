@@ -1,6 +1,6 @@
 /**
  * AI Prompts untuk CV Analysis & Job Matching
- * 
+ *
  * Dipisahkan dari logic untuk memudahkan maintenance dan A/B testing
  */
 
@@ -10,30 +10,35 @@ export const PROMPTS = {
    * Extract FULL candidate profile, not just skills
    */
   CV_PARSING: `
-You are an expert CV/Resume analyzer. Extract comprehensive information from this CV.
+You are an expert CV/Resume analyzer. Extract information from the text below into JSON format.
 
-Return ONLY valid JSON matching this structure:
+CV TEXT:
+"""
+{cv_text}
+"""
+
+OUTPUT FORMAT (JSON):
 {
   "personalInfo": {
-    "fullName": "string (candidate's full name)",
-    "email": "string or null (if available)",
-    "phone": "string or null (if available)",
-    "location": "string or null (city/country)"
+    "fullName": "string",
+    "email": "string or null",
+    "phone": "string or null",
+    "location": "string or null"
   },
-  "professionalSummary": "string (2-3 sentences about candidate's overall profile and experience level)",
+  "professionalSummary": "string",
   "skills": {
-    "technical": ["array of technical skills (lowercase, deduplicated)"],
-    "soft": ["array of soft skills like communication, leadership, teamwork"],
-    "languages": ["programming/spoken languages"]
+    "technical": ["string (lowercase)"],
+    "soft": ["string"],
+    "languages": ["string"]
   },
   "experience": {
-    "totalYears": number (estimated years of professional experience),
+    "totalYears": number,
     "roles": [
       {
         "title": "string",
         "company": "string",
-        "duration": "string (e.g., '2 years', '6 months')",
-        "keyResponsibilities": ["array of 2-3 main responsibilities"]
+        "duration": "string",
+        "keyResponsibilities": ["string"]
       }
     ]
   },
@@ -42,31 +47,23 @@ Return ONLY valid JSON matching this structure:
       "degree": "string",
       "institution": "string",
       "year": "string or null",
-      "field": "string (major/field of study)"
+      "field": "string"
     }
   ],
-  "certifications": ["array of professional certifications"],
+  "certifications": ["string"],
   "projects": [
     {
       "name": "string",
-      "description": "string (brief)",
-      "technologies": ["array of tech used"]
+      "description": "string",
+      "technologies": ["string"]
     }
   ]
 }
 
-EXTRACTION RULES:
-1. Use ONLY information explicitly stated in the CV - do NOT guess or infer
-2. For skills: extract ALL mentioned technologies, frameworks, tools (lowercase)
-3. For experience: calculate total years from work history dates
-4. If a field is not found, use null or empty array []
-5. Deduplicate skills and normalize names (e.g., "nodejs" → "node.js")
-6. Focus on FACTUAL data, avoid subjective interpretations
-
-CV TEXT:
-"""
-{cv_text}
-"""
+INSTRUCTIONS:
+- Extract technical skills in lowercase.
+- Calculate total years of experience from dates if possible.
+- If a field is missing, use null or [].
 `.trim(),
 
   /**
@@ -152,45 +149,121 @@ MATCHING RULES:
   FALLBACK_EXTRACTION: {
     skillKeywords: [
       // Programming Languages
-      "javascript", "typescript", "python", "java", "kotlin", "swift", "dart", "flutter",
-      "c++", "c#", "ruby", "go", "golang", "rust", "php", "scala", "sql",
-      
+      'javascript',
+      'typescript',
+      'python',
+      'java',
+      'kotlin',
+      'swift',
+      'dart',
+      'flutter',
+      'c++',
+      'c#',
+      'ruby',
+      'go',
+      'golang',
+      'rust',
+      'php',
+      'scala',
+      'sql',
+
       // Frontend
-      "html", "css", "react", "vue", "angular", "next.js", "nuxt", "svelte",
-      "redux", "tailwind", "bootstrap", "sass", "webpack", "vite",
-      
+      'html',
+      'css',
+      'react',
+      'vue',
+      'angular',
+      'next.js',
+      'nuxt',
+      'svelte',
+      'redux',
+      'tailwind',
+      'bootstrap',
+      'sass',
+      'webpack',
+      'vite',
+
       // Backend
-      "node.js", "express", "fastify", "nest.js", "django", "flask", "fastapi",
-      "spring", "springboot", "laravel", "rails", ".net", "asp.net",
-      
+      'node.js',
+      'express',
+      'fastify',
+      'nest.js',
+      'django',
+      'flask',
+      'fastapi',
+      'spring',
+      'springboot',
+      'laravel',
+      'rails',
+      '.net',
+      'asp.net',
+
       // Databases
-      "postgresql", "postgres", "mysql", "mongodb", "redis", "sqlite", "cassandra",
-      "dynamodb", "oracle", "mssql", "elasticsearch",
-      
+      'postgresql',
+      'postgres',
+      'mysql',
+      'mongodb',
+      'redis',
+      'sqlite',
+      'cassandra',
+      'dynamodb',
+      'oracle',
+      'mssql',
+      'elasticsearch',
+
       // DevOps & Cloud
-      "docker", "kubernetes", "k8s", "jenkins", "github actions", "gitlab ci",
-      "aws", "azure", "gcp", "terraform", "ansible", "ci/cd", "linux",
-      
+      'docker',
+      'kubernetes',
+      'k8s',
+      'jenkins',
+      'github actions',
+      'gitlab ci',
+      'aws',
+      'azure',
+      'gcp',
+      'terraform',
+      'ansible',
+      'ci/cd',
+      'linux',
+
       // Mobile
-      "android", "ios", "react native", "flutter", "swift", "kotlin",
-      
+      'android',
+      'ios',
+      'react native',
+      'flutter',
+      'swift',
+      'kotlin',
+
       // Other
-      "api", "rest", "graphql", "microservices", "websocket", "grpc",
-      "git", "github", "agile", "scrum", "jira", "figma"
+      'api',
+      'rest',
+      'graphql',
+      'microservices',
+      'websocket',
+      'grpc',
+      'git',
+      'github',
+      'agile',
+      'scrum',
+      'jira',
+      'figma',
     ],
-    
+
     experiencePatterns: [
       /(\d+)\+?\s*years?\s+(?:of\s+)?experience/i,
       /experience:?\s*(\d+)\+?\s*years?/i,
-      /(\d+)\+?\s*years?\s+(?:working|developing)/i
-    ]
-  }
+      /(\d+)\+?\s*years?\s+(?:working|developing)/i,
+    ],
+  },
 } as const;
 
 /**
  * Template helper to inject variables into prompts
  */
-export function fillPromptTemplate(template: string, variables: Record<string, string>): string {
+export function fillPromptTemplate(
+  template: string,
+  variables: Record<string, string>,
+): string {
   let result = template;
   for (const [key, value] of Object.entries(variables)) {
     result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
