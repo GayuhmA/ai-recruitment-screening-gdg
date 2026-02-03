@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useSession } from 'next-auth/react';
 import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
@@ -11,15 +12,19 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { status: sessionStatus } = useSession();
+
+  const isLoading = authLoading || sessionStatus === 'loading';
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (!isLoading && !isAuthenticated && sessionStatus === 'unauthenticated') {
       router.replace('/login');
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, sessionStatus, router]);
 
-  if (isLoading) {
+ 
+  if (isLoading || (sessionStatus === 'authenticated' && !isAuthenticated)) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-zinc-950">
         <div className="flex flex-col items-center gap-4">
@@ -30,7 +35,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && sessionStatus === 'unauthenticated') {
     return null;
   }
 
